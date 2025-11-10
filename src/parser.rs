@@ -48,6 +48,7 @@ fn get_tree_sitter_language(language: &Language) -> Result<tree_sitter::Language
         Language::Python => Ok(tree_sitter_python::LANGUAGE.into()),
         Language::TypeScript => Ok(tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()),
         Language::Go => Ok(tree_sitter_go::LANGUAGE.into()),
+        Language::Swift => Ok(tree_sitter_swift::LANGUAGE.into()),
     }
 }
 
@@ -117,6 +118,23 @@ mod tests {
         writeln!(temp_file, "}}")?;
 
         let tree = parse_file(temp_file.path(), &Language::Go)?;
+        let root = tree.root_node();
+
+        // Check that we got a valid tree
+        assert!(root.child_count() > 0);
+        assert_eq!(root.kind(), "source_file");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_swift_file() -> Result<()> {
+        let mut temp_file = NamedTempFile::new()?;
+        writeln!(temp_file, "func hello() {{")?;
+        writeln!(temp_file, "    print(\"Hello, world!\")")?;
+        writeln!(temp_file, "}}")?;
+
+        let tree = parse_file(temp_file.path(), &Language::Swift)?;
         let root = tree.root_node();
 
         // Check that we got a valid tree

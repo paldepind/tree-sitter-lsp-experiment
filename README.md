@@ -6,6 +6,7 @@
 - Python
 - TypeScript
 - Go
+- Swift
 
 ## LSP Server Installation
 
@@ -42,6 +43,17 @@ go install golang.org/x/tools/gopls@latest
 ```
 
 Make sure `$GOPATH/bin` is in your PATH.
+
+### Swift - `sourcekit-lsp`
+
+**macOS:**
+
+[sourcekit-lsp](https://github.com/swiftlang/sourcekit-lsp) comes bundled with
+Xcode or the Swift toolchain.
+
+**Linux:**
+
+Download and install the Swift toolchain from https://swift.org/download/
 
 ## Usage
 

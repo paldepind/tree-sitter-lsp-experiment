@@ -17,6 +17,7 @@ pub enum Language {
     Python,
     TypeScript,
     Go,
+    Swift,
 }
 
 impl Language {
@@ -47,6 +48,12 @@ impl Language {
                 file_pattern: r"\.go$",
                 extensions: ".go",
             },
+            Language::Swift => LanguageConfig {
+                display_name: "Swift",
+                cli_name: "swift",
+                file_pattern: r"\.swift$",
+                extensions: ".swift",
+            },
         }
     }
 
@@ -57,6 +64,7 @@ impl Language {
             Language::Python,
             Language::TypeScript,
             Language::Go,
+            Language::Swift,
         ]
     }
 

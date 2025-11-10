@@ -128,6 +128,7 @@ impl LspServerManager {
                 "--stdio".to_string(),
             ])),
             Language::Go => Ok(("gopls".to_string(), vec![])),
+            Language::Swift => Ok(("sourcekit-lsp".to_string(), vec![])),
         }
     }
 
@@ -159,6 +160,9 @@ impl LspServerManager {
                 "Install TypeScript Language Server: npm install -g typescript-language-server typescript"
             }
             Language::Go => "Install gopls: go install golang.org/x/tools/gopls@latest",
+            Language::Swift => {
+                "Install sourcekit-lsp: Install Xcode or Swift toolchain from https://swift.org/download/"
+            }
         }
     }
 }
