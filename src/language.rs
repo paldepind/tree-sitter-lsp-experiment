@@ -8,6 +8,8 @@ struct LanguageConfig {
     cli_name: &'static str,
     file_pattern: &'static str,
     extensions: &'static str,
+    lsp_server_command: &'static str,
+    lsp_server_args: &'static [&'static str],
 }
 
 /// Supported programming languages for Tree Sitter parsing and LSP integration
@@ -29,30 +31,40 @@ impl Language {
                 cli_name: "rust",
                 file_pattern: r"\.rs$",
                 extensions: ".rs",
+                lsp_server_command: "rust-analyzer",
+                lsp_server_args: &[],
             },
             Language::Python => LanguageConfig {
                 display_name: "Python",
                 cli_name: "python",
                 file_pattern: r"\.py$",
                 extensions: ".py",
+                lsp_server_command: "pylsp",
+                lsp_server_args: &[],
             },
             Language::TypeScript => LanguageConfig {
                 display_name: "TypeScript",
                 cli_name: "typescript",
                 file_pattern: r"\.(ts|tsx)$",
                 extensions: ".ts, .tsx",
+                lsp_server_command: "typescript-language-server",
+                lsp_server_args: &["--stdio"],
             },
             Language::Go => LanguageConfig {
                 display_name: "Go",
                 cli_name: "go",
                 file_pattern: r"\.go$",
                 extensions: ".go",
+                lsp_server_command: "gopls",
+                lsp_server_args: &[],
             },
             Language::Swift => LanguageConfig {
                 display_name: "Swift",
                 cli_name: "swift",
                 file_pattern: r"\.swift$",
                 extensions: ".swift",
+                lsp_server_command: "sourcekit-lsp",
+                lsp_server_args: &[],
             },
         }
     }
@@ -87,6 +99,17 @@ impl Language {
     /// Returns the lowercase name used for command line arguments
     pub fn cli_name(&self) -> &'static str {
         self.config().cli_name
+    }
+
+    /// Returns the LSP server command and arguments for this language
+    pub fn lsp_server_command(&self) -> (&'static str, Vec<String>) {
+        let config = self.config();
+        let args = config
+            .lsp_server_args
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        (config.lsp_server_command, args)
     }
 }
 

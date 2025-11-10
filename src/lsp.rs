@@ -86,9 +86,9 @@ impl LspServerManager {
             config.working_dir.display()
         );
 
-        let (command, args) = Self::get_server_command(language)?;
+        let (command, args) = language.lsp_server_command();
 
-        let mut cmd = Command::new(&command);
+        let mut cmd = Command::new(command);
         cmd.current_dir(&config.working_dir)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -119,32 +119,16 @@ impl LspServerManager {
         })
     }
 
-    /// Returns the command and arguments needed to start an LSP server for the given language
-    fn get_server_command(language: &Language) -> Result<(String, Vec<String>)> {
-        match language {
-            Language::Rust => Ok(("rust-analyzer".to_string(), vec![])),
-            Language::Python => Ok(("pylsp".to_string(), vec![])), // Python LSP Server (pylsp)
-            Language::TypeScript => Ok(("typescript-language-server".to_string(), vec![
-                "--stdio".to_string(),
-            ])),
-            Language::Go => Ok(("gopls".to_string(), vec![])),
-            Language::Swift => Ok(("sourcekit-lsp".to_string(), vec![])),
-        }
-    }
-
     /// Checks if the required LSP server is available for the given language
     pub fn is_server_available(language: &Language) -> bool {
-        let (command, _) = match Self::get_server_command(language) {
-            Ok(cmd) => cmd,
-            Err(_) => return false,
-        };
+        let (command, _) = language.lsp_server_command();
 
         // Try to execute the command with --version or --help to check availability
-        match Command::new(&command).arg("--version").output() {
+        match Command::new(command).arg("--version").output() {
             Ok(_) => true,
             Err(_) => {
-                // Try --help as fallback
-                Command::new(&command).arg("--help").output().is_ok()
+                // Try with --help as a fallback
+                Command::new(command).arg("--help").output().is_ok()
             }
         }
     }
@@ -199,7 +183,7 @@ mod tests {
             );
             assert!(
                 instructions.contains(&language.to_string().to_lowercase())
-                    || instructions.contains(&language.cli_name()),
+                    || instructions.contains(language.cli_name()),
                 "Installation instructions should mention the language: {}",
                 language
             );
