@@ -1,7 +1,7 @@
 use anyhow::Result;
 use std::fs;
 use std::path::Path;
-use tree_sitter::{Parser, Tree};
+use tree_sitter::{Node, Parser, Tree, TreeCursor};
 
 use crate::Language;
 
@@ -49,6 +49,98 @@ fn get_tree_sitter_language(language: &Language) -> Result<tree_sitter::Language
         Language::TypeScript => Ok(tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()),
         Language::Go => Ok(tree_sitter_go::LANGUAGE.into()),
         Language::Swift => Ok(tree_sitter_swift::LANGUAGE.into()),
+    }
+}
+
+/// Returns an iterator over all function and method calls in the syntax tree
+///
+/// This function traverses the entire tree and yields nodes that represent
+/// function calls, method calls, or similar call expressions. The specific
+/// node kinds matched depend on the language being parsed.
+///
+/// # Arguments
+/// * `tree` - The parsed syntax tree to search
+///
+/// # Returns
+/// An iterator that yields `Node` for each call found in the tree
+///
+/// # Example
+/// ```ignore
+/// let tree = parse_file(path, &Language::Rust)?;
+/// for call in get_calls(&tree) {
+///     println!("Found call: {:?}", call.kind());
+/// }
+/// ```
+pub fn get_calls(tree: &Tree) -> impl Iterator<Item = Node<'_>> {
+    // Node kinds that represent calls in different languages
+    const CALL_NODE_KINDS: &[&str] = &[
+        // Rust
+        "call_expression",
+        "macro_invocation",
+        // Python
+        "call",
+        // TypeScript/JavaScript
+        "call_expression",
+        "new_expression",
+        // Go
+        "call_expression",
+        // Swift
+        "call_expression",
+        "function_call_expression",
+    ];
+
+    CallIterator {
+        cursor: tree.walk(),
+        call_kinds: CALL_NODE_KINDS,
+        visited_root: false,
+    }
+}
+
+/// Iterator that traverses a Tree-sitter tree and yields call nodes
+struct CallIterator<'a> {
+    cursor: TreeCursor<'a>,
+    call_kinds: &'a [&'a str],
+    visited_root: bool,
+}
+
+impl<'a> Iterator for CallIterator<'a> {
+    type Item = Node<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let node = self.cursor.node();
+
+            // Check if current node is a call
+            if self.visited_root && self.call_kinds.contains(&node.kind()) {
+                // Move to next node for the next iteration
+                if !self.cursor.goto_first_child() {
+                    while !self.cursor.goto_next_sibling() {
+                        if !self.cursor.goto_parent() {
+                            return Some(node);
+                        }
+                    }
+                }
+
+                return Some(node);
+            }
+
+            self.visited_root = true;
+
+            // Traverse the tree depth-first
+            if self.cursor.goto_first_child() {
+                continue;
+            }
+
+            loop {
+                if self.cursor.goto_next_sibling() {
+                    break;
+                }
+
+                if !self.cursor.goto_parent() {
+                    return None; // Reached end of tree
+                }
+            }
+        }
     }
 }
 
@@ -161,6 +253,112 @@ mod tests {
 
         // Tree should still be created even with errors
         assert!(root.child_count() > 0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_calls_rust() -> Result<()> {
+        let mut temp_file = NamedTempFile::new()?;
+        writeln!(temp_file, "fn main() {{")?;
+        writeln!(temp_file, "    println!(\"Hello\");")?;
+        writeln!(temp_file, "    let x = calculate(5, 10);")?;
+        writeln!(temp_file, "    foo();")?;
+        writeln!(temp_file, "}}")?;
+        writeln!(temp_file)?;
+        writeln!(temp_file, "fn calculate(a: i32, b: i32) -> i32 {{")?;
+        writeln!(temp_file, "    a + b")?;
+        writeln!(temp_file, "}}")?;
+
+        let tree = parse_file(temp_file.path(), &Language::Rust)?;
+        let calls: Vec<_> = get_calls(&tree).collect();
+
+        // Should find: println! (macro), calculate (call), foo (call)
+        assert_eq!(calls.len(), 3);
+
+        // Check that we found a macro invocation
+        assert!(calls.iter().any(|c| c.kind() == "macro_invocation"));
+
+        // Check that we found call expressions
+        assert!(calls.iter().any(|c| c.kind() == "call_expression"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_calls_python() -> Result<()> {
+        let mut temp_file = NamedTempFile::new()?;
+        writeln!(temp_file, "def main():")?;
+        writeln!(temp_file, "    print('Hello')")?;
+        writeln!(temp_file, "    result = calculate(5, 10)")?;
+        writeln!(temp_file, "    foo()")?;
+
+        let tree = parse_file(temp_file.path(), &Language::Python)?;
+        let calls: Vec<_> = get_calls(&tree).collect();
+
+        // Should find: print, calculate, foo
+        assert_eq!(calls.len(), 3);
+        assert!(calls.iter().all(|c| c.kind() == "call"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_calls_typescript() -> Result<()> {
+        let mut temp_file = NamedTempFile::new()?;
+        writeln!(temp_file, "function main() {{")?;
+        writeln!(temp_file, "    console.log('Hello');")?;
+        writeln!(temp_file, "    const x = calculate(5, 10);")?;
+        writeln!(temp_file, "    const obj = new MyClass();")?;
+        writeln!(temp_file, "}}")?;
+
+        let tree = parse_file(temp_file.path(), &Language::TypeScript)?;
+        let calls: Vec<_> = get_calls(&tree).collect();
+
+        // Should find: console.log, calculate, new MyClass
+        assert_eq!(calls.len(), 3);
+
+        // Check for both call_expression and new_expression
+        assert!(calls.iter().any(|c| c.kind() == "call_expression"));
+        assert!(calls.iter().any(|c| c.kind() == "new_expression"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_calls_go() -> Result<()> {
+        let mut temp_file = NamedTempFile::new()?;
+        writeln!(temp_file, "package main")?;
+        writeln!(temp_file)?;
+        writeln!(temp_file, "func main() {{")?;
+        writeln!(temp_file, "    println(\"Hello\")")?;
+        writeln!(temp_file, "    x := calculate(5, 10)")?;
+        writeln!(temp_file, "}}")?;
+
+        let tree = parse_file(temp_file.path(), &Language::Go)?;
+        let calls: Vec<_> = get_calls(&tree).collect();
+
+        // Should find: println, calculate
+        assert_eq!(calls.len(), 2);
+        assert!(calls.iter().all(|c| c.kind() == "call_expression"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_calls_swift() -> Result<()> {
+        let mut temp_file = NamedTempFile::new()?;
+        writeln!(temp_file, "func main() {{")?;
+        writeln!(temp_file, "    print(\"Hello\")")?;
+        writeln!(temp_file, "    let x = calculate(5, 10)")?;
+        writeln!(temp_file, "}}")?;
+
+        let tree = parse_file(temp_file.path(), &Language::Swift)?;
+        let calls: Vec<_> = get_calls(&tree).collect();
+
+        // Should find: print, calculate
+        assert_eq!(calls.len(), 2);
+        assert!(calls.iter().all(|c| c.kind() == "call_expression"));
 
         Ok(())
     }
