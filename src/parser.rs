@@ -270,17 +270,22 @@ mod tests {
         writeln!(temp_file, "    a + b")?;
         writeln!(temp_file, "}}")?;
 
+        let source = fs::read(temp_file.path())?;
         let tree = parse_file(temp_file.path(), &Language::Rust)?;
         let calls: Vec<_> = get_calls(&tree).collect();
 
         // Should find: println! (macro), calculate (call), foo (call)
         assert_eq!(calls.len(), 3);
 
-        // Check that we found a macro invocation
-        assert!(calls.iter().any(|c| c.kind() == "macro_invocation"));
+        // Verify order and content
+        assert_eq!(calls[0].kind(), "macro_invocation");
+        assert!(calls[0].utf8_text(&source)?.contains("println!"));
 
-        // Check that we found call expressions
-        assert!(calls.iter().any(|c| c.kind() == "call_expression"));
+        assert_eq!(calls[1].kind(), "call_expression");
+        assert!(calls[1].utf8_text(&source)?.contains("calculate"));
+
+        assert_eq!(calls[2].kind(), "call_expression");
+        assert!(calls[2].utf8_text(&source)?.contains("foo"));
 
         Ok(())
     }
@@ -293,12 +298,21 @@ mod tests {
         writeln!(temp_file, "    result = calculate(5, 10)")?;
         writeln!(temp_file, "    foo()")?;
 
+        let source = fs::read(temp_file.path())?;
         let tree = parse_file(temp_file.path(), &Language::Python)?;
         let calls: Vec<_> = get_calls(&tree).collect();
 
-        // Should find: print, calculate, foo
+        // Should find: print, calculate, foo in that order
         assert_eq!(calls.len(), 3);
-        assert!(calls.iter().all(|c| c.kind() == "call"));
+
+        assert_eq!(calls[0].kind(), "call");
+        assert!(calls[0].utf8_text(&source)?.contains("print"));
+
+        assert_eq!(calls[1].kind(), "call");
+        assert!(calls[1].utf8_text(&source)?.contains("calculate"));
+
+        assert_eq!(calls[2].kind(), "call");
+        assert!(calls[2].utf8_text(&source)?.contains("foo"));
 
         Ok(())
     }
@@ -312,15 +326,21 @@ mod tests {
         writeln!(temp_file, "    const obj = new MyClass();")?;
         writeln!(temp_file, "}}")?;
 
+        let source = fs::read(temp_file.path())?;
         let tree = parse_file(temp_file.path(), &Language::TypeScript)?;
         let calls: Vec<_> = get_calls(&tree).collect();
 
-        // Should find: console.log, calculate, new MyClass
+        // Should find: console.log, calculate, new MyClass in that order
         assert_eq!(calls.len(), 3);
 
-        // Check for both call_expression and new_expression
-        assert!(calls.iter().any(|c| c.kind() == "call_expression"));
-        assert!(calls.iter().any(|c| c.kind() == "new_expression"));
+        assert_eq!(calls[0].kind(), "call_expression");
+        assert!(calls[0].utf8_text(&source)?.contains("console.log"));
+
+        assert_eq!(calls[1].kind(), "call_expression");
+        assert!(calls[1].utf8_text(&source)?.contains("calculate"));
+
+        assert_eq!(calls[2].kind(), "new_expression");
+        assert!(calls[2].utf8_text(&source)?.contains("MyClass"));
 
         Ok(())
     }
@@ -335,12 +355,18 @@ mod tests {
         writeln!(temp_file, "    x := calculate(5, 10)")?;
         writeln!(temp_file, "}}")?;
 
+        let source = fs::read(temp_file.path())?;
         let tree = parse_file(temp_file.path(), &Language::Go)?;
         let calls: Vec<_> = get_calls(&tree).collect();
 
-        // Should find: println, calculate
+        // Should find: println, calculate in that order
         assert_eq!(calls.len(), 2);
-        assert!(calls.iter().all(|c| c.kind() == "call_expression"));
+
+        assert_eq!(calls[0].kind(), "call_expression");
+        assert!(calls[0].utf8_text(&source)?.contains("println"));
+
+        assert_eq!(calls[1].kind(), "call_expression");
+        assert!(calls[1].utf8_text(&source)?.contains("calculate"));
 
         Ok(())
     }
@@ -353,12 +379,18 @@ mod tests {
         writeln!(temp_file, "    let x = calculate(5, 10)")?;
         writeln!(temp_file, "}}")?;
 
+        let source = fs::read(temp_file.path())?;
         let tree = parse_file(temp_file.path(), &Language::Swift)?;
         let calls: Vec<_> = get_calls(&tree).collect();
 
-        // Should find: print, calculate
+        // Should find: print, calculate in that order
         assert_eq!(calls.len(), 2);
-        assert!(calls.iter().all(|c| c.kind() == "call_expression"));
+
+        assert_eq!(calls[0].kind(), "call_expression");
+        assert!(calls[0].utf8_text(&source)?.contains("print"));
+
+        assert_eq!(calls[1].kind(), "call_expression");
+        assert!(calls[1].utf8_text(&source)?.contains("calculate"));
 
         Ok(())
     }
