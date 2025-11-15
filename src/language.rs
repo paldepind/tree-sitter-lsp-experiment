@@ -13,7 +13,7 @@ struct LanguageConfig {
 }
 
 /// Supported programming languages for Tree Sitter parsing and LSP integration
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Language {
     Rust,
     Python,

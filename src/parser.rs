@@ -13,7 +13,7 @@ use crate::Language;
 ///
 /// # Returns
 /// * `Result<Tree>` - The parsed syntax tree or an error
-pub fn parse_file(file_path: &Path, language: &Language) -> Result<Tree> {
+pub fn parse_file(file_path: &Path, language: Language) -> Result<Tree> {
     // Read the file contents
     let source_code = fs::read_to_string(file_path)
         .map_err(|e| anyhow::anyhow!("Failed to read file {}: {}", file_path.display(), e))?;
@@ -42,7 +42,7 @@ pub fn parse_file(file_path: &Path, language: &Language) -> Result<Tree> {
 }
 
 /// Returns the Tree Sitter language grammar for the given language
-fn get_tree_sitter_language(language: &Language) -> Result<tree_sitter::Language> {
+fn get_tree_sitter_language(language: Language) -> Result<tree_sitter::Language> {
     match language {
         Language::Rust => Ok(tree_sitter_rust::LANGUAGE.into()),
         Language::Python => Ok(tree_sitter_python::LANGUAGE.into()),
@@ -66,7 +66,7 @@ fn get_tree_sitter_language(language: &Language) -> Result<tree_sitter::Language
 ///
 /// # Example
 /// ```ignore
-/// let tree = parse_file(path, &Language::Rust)?;
+/// let tree = parse_file(path, Language::Rust)?;
 /// for call in get_calls(&tree) {
 ///     println!("Found call: {:?}", call.kind());
 /// }
@@ -157,7 +157,7 @@ mod tests {
         writeln!(temp_file, "    println!(\"Hello, world!\");")?;
         writeln!(temp_file, "}}")?;
 
-        let tree = parse_file(temp_file.path(), &Language::Rust)?;
+        let tree = parse_file(temp_file.path(), Language::Rust)?;
         let root = tree.root_node();
 
         // Check that we got a valid tree
@@ -173,7 +173,7 @@ mod tests {
         writeln!(temp_file, "def hello():")?;
         writeln!(temp_file, "    print('Hello, world!')")?;
 
-        let tree = parse_file(temp_file.path(), &Language::Python)?;
+        let tree = parse_file(temp_file.path(), Language::Python)?;
         let root = tree.root_node();
 
         // Check that we got a valid tree
@@ -190,7 +190,7 @@ mod tests {
         writeln!(temp_file, "    console.log('Hello, world!');")?;
         writeln!(temp_file, "}}")?;
 
-        let tree = parse_file(temp_file.path(), &Language::TypeScript)?;
+        let tree = parse_file(temp_file.path(), Language::TypeScript)?;
         let root = tree.root_node();
 
         // Check that we got a valid tree
@@ -209,7 +209,7 @@ mod tests {
         writeln!(temp_file, "    println(\"Hello, world!\")")?;
         writeln!(temp_file, "}}")?;
 
-        let tree = parse_file(temp_file.path(), &Language::Go)?;
+        let tree = parse_file(temp_file.path(), Language::Go)?;
         let root = tree.root_node();
 
         // Check that we got a valid tree
@@ -226,7 +226,7 @@ mod tests {
         writeln!(temp_file, "    print(\"Hello, world!\")")?;
         writeln!(temp_file, "}}")?;
 
-        let tree = parse_file(temp_file.path(), &Language::Swift)?;
+        let tree = parse_file(temp_file.path(), Language::Swift)?;
         let root = tree.root_node();
 
         // Check that we got a valid tree
@@ -238,7 +238,7 @@ mod tests {
 
     #[test]
     fn test_parse_nonexistent_file() {
-        let result = parse_file(Path::new("/nonexistent/file.rs"), &Language::Rust);
+        let result = parse_file(Path::new("/nonexistent/file.rs"), Language::Rust);
         assert!(result.is_err());
     }
 
@@ -248,7 +248,7 @@ mod tests {
         writeln!(temp_file, "fn main() {{ this is invalid rust")?;
 
         // Parser should still succeed but might have error nodes
-        let tree = parse_file(temp_file.path(), &Language::Rust)?;
+        let tree = parse_file(temp_file.path(), Language::Rust)?;
         let root = tree.root_node();
 
         // Tree should still be created even with errors
@@ -271,7 +271,7 @@ mod tests {
         writeln!(temp_file, "}}")?;
 
         let source = fs::read(temp_file.path())?;
-        let tree = parse_file(temp_file.path(), &Language::Rust)?;
+        let tree = parse_file(temp_file.path(), Language::Rust)?;
         let calls: Vec<_> = get_calls(&tree).collect();
 
         // Should find: println! (macro), calculate (call), foo (call)
@@ -299,7 +299,7 @@ mod tests {
         writeln!(temp_file, "    foo()")?;
 
         let source = fs::read(temp_file.path())?;
-        let tree = parse_file(temp_file.path(), &Language::Python)?;
+        let tree = parse_file(temp_file.path(), Language::Python)?;
         let calls: Vec<_> = get_calls(&tree).collect();
 
         // Should find: print, calculate, foo in that order
@@ -327,7 +327,7 @@ mod tests {
         writeln!(temp_file, "}}")?;
 
         let source = fs::read(temp_file.path())?;
-        let tree = parse_file(temp_file.path(), &Language::TypeScript)?;
+        let tree = parse_file(temp_file.path(), Language::TypeScript)?;
         let calls: Vec<_> = get_calls(&tree).collect();
 
         // Should find: console.log, calculate, new MyClass in that order
@@ -356,7 +356,7 @@ mod tests {
         writeln!(temp_file, "}}")?;
 
         let source = fs::read(temp_file.path())?;
-        let tree = parse_file(temp_file.path(), &Language::Go)?;
+        let tree = parse_file(temp_file.path(), Language::Go)?;
         let calls: Vec<_> = get_calls(&tree).collect();
 
         // Should find: println, calculate in that order
@@ -380,7 +380,7 @@ mod tests {
         writeln!(temp_file, "}}")?;
 
         let source = fs::read(temp_file.path())?;
-        let tree = parse_file(temp_file.path(), &Language::Swift)?;
+        let tree = parse_file(temp_file.path(), Language::Swift)?;
         let calls: Vec<_> = get_calls(&tree).collect();
 
         // Should find: print, calculate in that order

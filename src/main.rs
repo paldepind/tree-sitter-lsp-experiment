@@ -92,7 +92,7 @@ fn main() -> Result<()> {
     // Find all files of the specified language in the project
     tracing::info!("Scanning for {} files in project...", language);
     let finder = FileFinder::new();
-    let matching_files = finder.find_language_files(&project_path, &language)?;
+    let matching_files = finder.find_language_files(&project_path, language)?;
 
     tracing::info!("Found {} {} files:", matching_files.len(), language);
     for file in &matching_files {
@@ -101,7 +101,7 @@ fn main() -> Result<()> {
 
     // Start LSP server for the language
     tracing::info!("Starting LSP server for {}...", language);
-    match start_lsp_server(&language, &project_path) {
+    match start_lsp_server(language, &project_path) {
         Ok(mut lsp_server) => {
             tracing::info!("LSP server started successfully!");
             tracing::info!(

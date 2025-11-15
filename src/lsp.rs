@@ -79,7 +79,7 @@ pub struct LspServerManager;
 
 impl LspServerManager {
     /// Starts an LSP server for the specified language in the given directory
-    pub fn start_server(language: &Language, config: LspServerConfig) -> Result<LspServer> {
+    pub fn start_server(language: Language, config: LspServerConfig) -> Result<LspServer> {
         tracing::info!(
             "Starting LSP server for {} in {}",
             language,
@@ -114,13 +114,13 @@ impl LspServerManager {
 
         Ok(LspServer {
             process,
-            language: language.clone(),
+            language,
             working_dir: config.working_dir,
         })
     }
 
     /// Checks if the required LSP server is available for the given language
-    pub fn is_server_available(language: &Language) -> bool {
+    pub fn is_server_available(language: Language) -> bool {
         let (command, _) = language.lsp_server_command();
 
         // Try to execute the command with --version or --help to check availability
@@ -134,7 +134,7 @@ impl LspServerManager {
     }
 
     /// Returns installation instructions for the LSP server for the given language
-    pub fn get_installation_instructions(language: &Language) -> &'static str {
+    pub fn get_installation_instructions(language: Language) -> &'static str {
         match language {
             Language::Rust => {
                 "Install rust-analyzer: https://rust-analyzer.github.io/manual.html#installation"
@@ -152,7 +152,7 @@ impl LspServerManager {
 }
 
 /// Convenience function to start an LSP server for a language in a directory
-pub fn start_lsp_server(language: &Language, path: &Path) -> Result<LspServer> {
+pub fn start_lsp_server(language: Language, path: &Path) -> Result<LspServer> {
     // Check if the LSP server is available
     if !LspServerManager::is_server_available(language) {
         let instructions = LspServerManager::get_installation_instructions(language);
@@ -175,7 +175,7 @@ mod tests {
     fn test_lsp_server_installation_instructions() {
         // Test that each language has installation instructions
         for language in crate::Language::all() {
-            let instructions = LspServerManager::get_installation_instructions(&language);
+            let instructions = LspServerManager::get_installation_instructions(language);
             assert!(
                 !instructions.is_empty(),
                 "Missing installation instructions for {}",

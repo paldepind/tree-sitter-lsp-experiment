@@ -61,11 +61,7 @@ impl FileFinder {
     }
 
     /// Recursively finds all files in the given directory that match the language's file pattern
-    pub fn find_language_files(
-        &self,
-        dir_path: &Path,
-        language: &Language,
-    ) -> Result<Vec<PathBuf>> {
+    pub fn find_language_files(&self, dir_path: &Path, language: Language) -> Result<Vec<PathBuf>> {
         let mut matching_files = Vec::new();
         let file_regex = language.file_regex()?;
 
@@ -157,7 +153,7 @@ mod tests {
         fs::write(temp_path.join("README.md"), "# Project")?; // Should not match
 
         let finder = FileFinder::new();
-        let rust_files = finder.find_language_files(temp_path, &Language::Rust)?;
+        let rust_files = finder.find_language_files(temp_path, Language::Rust)?;
 
         assert_eq!(rust_files.len(), 3); // main.rs, lib.rs, integration.rs (target/debug/build.rs should be skipped)
 
