@@ -8,7 +8,7 @@ use lsp_types::{
 use std::env;
 use std::path::PathBuf;
 use std::str::FromStr;
-use tree_sitter_lsp_experiment::{FileFinder, Language, LspServer, LspServerConfig};
+use tree_sitter_lsp_experiment::{FileSearchConfig, Language, LspServer, LspServerConfig};
 
 fn main() -> Result<()> {
     // Initialize tracing
@@ -93,8 +93,8 @@ fn main() -> Result<()> {
 
     // Find all files of the specified language in the project
     tracing::info!("Scanning for {} files in project...", language);
-    let finder = FileFinder::new();
-    let matching_files = finder.find_language_files(&project_path, language)?;
+    let config = FileSearchConfig::default();
+    let matching_files = config.find_language_files(&project_path, language)?;
 
     tracing::info!("Found {} {} files:", matching_files.len(), language);
     for file in &matching_files {

@@ -43,24 +43,7 @@ impl Default for FileSearchConfig {
     }
 }
 
-/// File finder for locating source code files by language
-pub struct FileFinder {
-    config: FileSearchConfig,
-}
-
-impl FileFinder {
-    /// Create a new FileFinder with default configuration
-    pub fn new() -> Self {
-        Self {
-            config: FileSearchConfig::default(),
-        }
-    }
-
-    /// Create a new FileFinder with custom configuration
-    pub fn with_config(config: FileSearchConfig) -> Self {
-        Self { config }
-    }
-
+impl FileSearchConfig {
     /// Recursively finds all files in the given directory that match the language's file pattern
     pub fn find_language_files(&self, dir_path: &Path, language: Language) -> Result<Vec<PathBuf>> {
         let mut matching_files = Vec::new();
@@ -84,7 +67,7 @@ impl FileFinder {
         }
 
         // Check depth limit
-        if let Some(max_depth) = self.config.max_depth {
+        if let Some(max_depth) = self.max_depth {
             if current_depth >= max_depth {
                 return Ok(());
             }
@@ -101,7 +84,7 @@ impl FileFinder {
             if path.is_dir() {
                 // Check if directory should be skipped
                 if let Some(dir_name) = path.file_name().and_then(|n| n.to_str()) {
-                    if self.config.skip_dirs.contains(&dir_name.to_string()) {
+                    if self.skip_dirs.contains(&dir_name.to_string()) {
                         continue;
                     }
                 }
@@ -121,12 +104,6 @@ impl FileFinder {
     }
 }
 
-impl Default for FileFinder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -134,7 +111,7 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
-    fn test_file_finder() -> Result<()> {
+    fn test_file_search() -> Result<()> {
         let temp_dir = TempDir::new()?;
         let temp_path = temp_dir.path();
 
@@ -153,8 +130,8 @@ mod tests {
         fs::write(temp_path.join("target/debug/build.rs"), "// build script")?; // Should be skipped
         fs::write(temp_path.join("README.md"), "# Project")?; // Should not match
 
-        let finder = FileFinder::new();
-        let rust_files = finder.find_language_files(temp_path, Language::Rust)?;
+        let config = FileSearchConfig::default();
+        let rust_files = config.find_language_files(temp_path, Language::Rust)?;
 
         assert_eq!(rust_files.len(), 3); // main.rs, lib.rs, integration.rs (target/debug/build.rs should be skipped)
 
