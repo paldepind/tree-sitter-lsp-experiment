@@ -1,3 +1,7 @@
+//! This module provides utilities for parsing source code using tree-sitter.
+//!
+//! It includes support for finding calls across multiple programming languages.
+
 use anyhow::Result;
 use std::fs;
 use std::path::Path;

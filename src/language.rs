@@ -1,3 +1,5 @@
+//! Programming language definitions and configurations.
+
 use anyhow::Result;
 use regex::Regex;
 use std::str::FromStr;

@@ -1,3 +1,6 @@
+//! Provides `LspServer` as a type that represents a running LSP server as well
+//! as convenience functions for communicating with it.
+
 use anyhow::Result;
 use lsp_types::notification::Notification;
 use lsp_types::request::Request;

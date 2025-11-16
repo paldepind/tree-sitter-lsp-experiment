@@ -1,3 +1,5 @@
+//! Functions related to the interplay between tree-sitter and LSP servers.
+
 use anyhow::Result;
 use lsp_types::{
     GotoDefinitionParams, Position, TextDocumentIdentifier, TextDocumentPositionParams,

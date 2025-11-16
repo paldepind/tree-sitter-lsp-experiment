@@ -1,3 +1,5 @@
+//! Find all files in a given directory that match a language's file pattern.
+
 use anyhow::Result;
 use regex::Regex;
 use std::fs;
