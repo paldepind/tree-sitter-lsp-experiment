@@ -4,6 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 // Module declarations
+pub mod integration;
 pub mod language;
 pub mod lsp;
 pub mod parser;
