@@ -10,7 +10,7 @@ pub mod parser;
 
 // Re-export main types
 pub use language::Language;
-pub use lsp::{LspServer, LspServerConfig, LspServerManager, start_lsp_server};
+pub use lsp::{LspServer, LspServerConfig};
 pub use parser::parse_file;
 
 /// Configuration for file searching behavior

@@ -1,15 +1,14 @@
 use anyhow::Result;
 use lsp_types::{
-    GotoDefinitionParams, GotoDefinitionResponse, InitializeParams, Position,
-    TextDocumentIdentifier, TextDocumentPositionParams, WorkspaceFolder,
-    request::{GotoDefinition, Initialize, Request},
+    DidOpenTextDocumentParams, GotoDefinitionParams, InitializeParams, InitializedParams, Position,
+    TextDocumentIdentifier, TextDocumentItem, TextDocumentPositionParams, WorkspaceFolder,
+    notification::{DidOpenTextDocument, Initialized},
+    request::{GotoDefinition, Initialize},
 };
-use serde_json::{from_value, to_value};
 use std::env;
-use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::str::FromStr;
-use tree_sitter_lsp_experiment::{FileFinder, Language, start_lsp_server};
+use tree_sitter_lsp_experiment::{FileFinder, Language, LspServer, LspServerConfig};
 
 fn main() -> Result<()> {
     // Initialize tracing
@@ -104,25 +103,13 @@ fn main() -> Result<()> {
 
     // Start LSP server for the language
     tracing::info!("Starting LSP server for {}...", language);
-    let mut lsp_server = start_lsp_server(language, &project_path)?;
+    let mut lsp_server =
+        LspServer::start(language, project_path.clone(), LspServerConfig::default())?;
 
     tracing::info!(
         "LSP server started successfully in: {}",
         lsp_server.working_dir.display()
     );
-
-    // Get stdin and stdout for LSP communication
-    let mut stdin = lsp_server
-        .process
-        .stdin
-        .take()
-        .ok_or_else(|| anyhow::anyhow!("Failed to get stdin"))?;
-    let stdout = lsp_server
-        .process
-        .stdout
-        .take()
-        .ok_or_else(|| anyhow::anyhow!("Failed to get stdout"))?;
-    let mut reader = BufReader::new(stdout);
 
     // Send Initialize request
     tracing::info!("Sending initialize request...");
@@ -141,16 +128,12 @@ fn main() -> Result<()> {
         ..Default::default()
     };
 
-    send_request(&mut stdin, 1, Initialize::METHOD, &initialize_params)?;
-    let _init_response = read_response(&mut reader)?;
+    let _init_response = lsp_server.request::<Initialize>(initialize_params)?;
     tracing::info!("Received initialize response");
 
     // Send initialized notification
-    send_notification(&mut stdin, "initialized", &serde_json::json!({}))?;
+    lsp_server.send_notification::<Initialized>(InitializedParams {})?;
     tracing::info!("Sent initialized notification");
-
-    // Wait a bit for the server to be ready
-    std::thread::sleep(std::time::Duration::from_millis(500));
 
     // Request definition for ScrollOffset.swift, line 31, character 17
     let file_path = project_path.join("SignalUI/Appearance/SwiftUI/ScrollOffset.swift");
@@ -161,18 +144,14 @@ fn main() -> Result<()> {
 
     // Send textDocument/didOpen notification
     tracing::info!("Opening document: {}", file_path.display());
-    send_notification(
-        &mut stdin,
-        "textDocument/didOpen",
-        &serde_json::json!({
-            "textDocument": {
-                "uri": file_uri,
-                "languageId": "swift",
-                "version": 1,
-                "text": file_content
-            }
-        }),
-    )?;
+    lsp_server.send_notification::<DidOpenTextDocument>(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: file_uri.parse()?,
+            language_id: "swift".to_string(),
+            version: 1,
+            text: file_content,
+        },
+    })?;
 
     tracing::info!("Requesting definition at {}:31:17", file_path.display());
 
@@ -190,30 +169,14 @@ fn main() -> Result<()> {
         partial_result_params: Default::default(),
     };
 
-    send_request(&mut stdin, 2, GotoDefinition::METHOD, &definition_params)?;
+    tracing::info!("Requesting definition...");
+    let definition_response = lsp_server.request::<GotoDefinition>(definition_params)?;
 
-    tracing::info!("Waiting for definition response...");
-    let definition_response = read_response_with_id(&mut reader, 2)?;
-
-    // Parse the response
-    if let Some(result) = definition_response.get("result") {
-        if result.is_null() {
-            tracing::warn!("No definition found at the specified location");
-        } else {
-            match from_value::<GotoDefinitionResponse>(result.clone()) {
-                Ok(response) => {
-                    tracing::info!("Definition response: {:#?}", response);
-                }
-                Err(e) => {
-                    tracing::error!("Failed to parse definition response: {}", e);
-                    tracing::debug!("Raw response: {:#?}", result);
-                }
-            }
-        }
+    if let Some(response) = definition_response {
+        tracing::info!("Definition response: {:#?}", response);
+    } else {
+        tracing::warn!("No definition found at the specified location");
     }
-
-    // Keep the server running for a bit
-    std::thread::sleep(std::time::Duration::from_secs(1));
 
     // Stop the server
     tracing::info!("Stopping LSP server...");
@@ -222,107 +185,4 @@ fn main() -> Result<()> {
     }
 
     Ok(())
-}
-
-fn send_request<T: serde::Serialize>(
-    stdin: &mut dyn Write,
-    id: u64,
-    method: &str,
-    params: &T,
-) -> Result<()> {
-    let request = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": id,
-        "method": method,
-        "params": to_value(params)?
-    });
-
-    let request_str = serde_json::to_string(&request)?;
-    let message = format!(
-        "Content-Length: {}\r\n\r\n{}",
-        request_str.len(),
-        request_str
-    );
-
-    tracing::debug!("Sending request: {}", request_str);
-    stdin.write_all(message.as_bytes())?;
-    stdin.flush()?;
-
-    Ok(())
-}
-
-fn send_notification<T: serde::Serialize>(
-    stdin: &mut dyn Write,
-    method: &str,
-    params: &T,
-) -> Result<()> {
-    let notification = serde_json::json!({
-        "jsonrpc": "2.0",
-        "method": method,
-        "params": to_value(params)?
-    });
-
-    let notification_str = serde_json::to_string(&notification)?;
-    let message = format!(
-        "Content-Length: {}\r\n\r\n{}",
-        notification_str.len(),
-        notification_str
-    );
-
-    tracing::debug!("Sending notification: {}", notification_str);
-    stdin.write_all(message.as_bytes())?;
-    stdin.flush()?;
-
-    Ok(())
-}
-
-fn read_response(reader: &mut BufReader<std::process::ChildStdout>) -> Result<serde_json::Value> {
-    // Read headers
-    let mut content_length = 0;
-    loop {
-        let mut header = String::new();
-        reader.read_line(&mut header)?;
-
-        if header == "\r\n" {
-            break;
-        }
-
-        if let Some(length_str) = header.strip_prefix("Content-Length: ") {
-            content_length = length_str.trim().parse()?;
-        }
-    }
-
-    // Read content
-    let mut buffer = vec![0; content_length];
-    std::io::Read::read_exact(reader, &mut buffer)?;
-
-    let response_str = String::from_utf8(buffer)?;
-    tracing::debug!("Received message: {}", response_str);
-
-    let response: serde_json::Value = serde_json::from_str(&response_str)?;
-    Ok(response)
-}
-
-fn read_response_with_id(
-    reader: &mut BufReader<std::process::ChildStdout>,
-    expected_id: u64,
-) -> Result<serde_json::Value> {
-    // Keep reading messages until we find the response with the matching ID
-    loop {
-        let message = read_response(reader)?;
-
-        // Check if this is a notification (no id field) or response
-        if let Some(id) = message.get("id") {
-            if id.as_u64() == Some(expected_id) {
-                return Ok(message);
-            } else {
-                tracing::debug!("Received response with different ID: {:?}", id);
-            }
-        } else {
-            // This is a notification or other message without an ID
-            if let Some(method) = message.get("method") {
-                tracing::debug!("Received notification: {}", method);
-            }
-        }
-    }
 }
