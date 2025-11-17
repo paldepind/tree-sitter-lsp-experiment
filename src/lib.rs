@@ -7,6 +7,7 @@ pub mod parser;
 
 // Re-export main types
 pub use file_search::FileSearchConfig;
+pub use integration::{CallDefinition, find_all_call_targets, goto_definition_for_node};
 pub use language::Language;
 pub use lsp::{LspServer, LspServerConfig};
 pub use parser::parse_file;
