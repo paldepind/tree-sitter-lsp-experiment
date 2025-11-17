@@ -22,7 +22,7 @@ pub fn parse_file_content(source_code: &str, language: Language) -> Result<Tree>
     let mut parser = Parser::new();
 
     // Set the language-specific grammar
-    let ts_language = get_tree_sitter_language(language)?;
+    let ts_language = language.tree_sitter_language();
     parser
         .set_language(&ts_language)
         .map_err(|e| anyhow::anyhow!("Failed to set language for parser: {}", e))?;
@@ -64,17 +64,6 @@ pub fn parse_file(file_path: &Path, language: Language) -> Result<Tree> {
     );
 
     Ok(tree)
-}
-
-/// Returns the Tree Sitter language grammar for the given language
-fn get_tree_sitter_language(language: Language) -> Result<tree_sitter::Language> {
-    match language {
-        Language::Rust => Ok(tree_sitter_rust::LANGUAGE.into()),
-        Language::Python => Ok(tree_sitter_python::LANGUAGE.into()),
-        Language::TypeScript => Ok(tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()),
-        Language::Go => Ok(tree_sitter_go::LANGUAGE.into()),
-        Language::Swift => Ok(tree_sitter_swift::LANGUAGE.into()),
-    }
 }
 
 /// Returns an iterator over all function and method calls in the syntax tree

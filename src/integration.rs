@@ -9,7 +9,7 @@ use tree_sitter::Node;
 
 use crate::call_with_target::CallWithTarget;
 use crate::lsp::LspServer;
-use crate::parse_file_content;
+use crate::parser::{get_calls, parse_file_content};
 
 fn point_to_position(point: tree_sitter::Point) -> Position {
     Position {
@@ -81,7 +81,6 @@ pub fn find_all_call_targets(
     project_path: &Path,
 ) -> Result<Vec<CallWithTarget>> {
     use crate::file_search::FileSearchConfig;
-    use crate::parser::{get_calls, parse_file};
     use lsp_types::{
         DidOpenTextDocumentParams, InitializeParams, InitializedParams, TextDocumentItem,
         WorkspaceFolder,

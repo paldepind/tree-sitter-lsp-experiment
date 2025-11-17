@@ -12,6 +12,7 @@ struct LanguageConfig {
     extensions: &'static str,
     lsp_server_command: &'static str,
     lsp_server_args: &'static [&'static str],
+    tree_sitter_language: tree_sitter_language::LanguageFn,
 }
 
 /// Supported programming languages for Tree Sitter parsing and LSP integration
@@ -35,6 +36,7 @@ impl Language {
                 extensions: ".rs",
                 lsp_server_command: "rust-analyzer",
                 lsp_server_args: &[],
+                tree_sitter_language: tree_sitter_rust::LANGUAGE,
             },
             Language::Python => LanguageConfig {
                 display_name: "Python",
@@ -43,6 +45,7 @@ impl Language {
                 extensions: ".py",
                 lsp_server_command: "pylsp",
                 lsp_server_args: &[],
+                tree_sitter_language: tree_sitter_python::LANGUAGE,
             },
             Language::TypeScript => LanguageConfig {
                 display_name: "TypeScript",
@@ -51,6 +54,7 @@ impl Language {
                 extensions: ".ts, .tsx",
                 lsp_server_command: "typescript-language-server",
                 lsp_server_args: &["--stdio"],
+                tree_sitter_language: tree_sitter_typescript::LANGUAGE_TYPESCRIPT,
             },
             Language::Go => LanguageConfig {
                 display_name: "Go",
@@ -59,6 +63,7 @@ impl Language {
                 extensions: ".go",
                 lsp_server_command: "gopls",
                 lsp_server_args: &[],
+                tree_sitter_language: tree_sitter_go::LANGUAGE,
             },
             Language::Swift => LanguageConfig {
                 display_name: "Swift",
@@ -67,6 +72,7 @@ impl Language {
                 extensions: ".swift",
                 lsp_server_command: "sourcekit-lsp",
                 lsp_server_args: &[],
+                tree_sitter_language: tree_sitter_swift::LANGUAGE,
             },
         }
     }
@@ -112,6 +118,11 @@ impl Language {
             .map(|s| s.to_string())
             .collect();
         (config.lsp_server_command, args)
+    }
+
+    /// Returns the Tree Sitter language grammar for the given language
+    pub fn tree_sitter_language(&self) -> tree_sitter::Language {
+        self.config().tree_sitter_language.into()
     }
 }
 
