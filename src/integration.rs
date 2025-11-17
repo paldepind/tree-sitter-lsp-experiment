@@ -236,6 +236,18 @@ pub fn find_all_call_targets(
                 }
             }
         }
+
+        // Close the document in the LSP server
+        let close_params = lsp_types::DidCloseTextDocumentParams {
+            text_document: lsp_types::TextDocumentIdentifier {
+                uri: file_uri.parse()?,
+            },
+        };
+        if let Err(e) = lsp_server
+            .send_notification::<lsp_types::notification::DidCloseTextDocument>(close_params)
+        {
+            tracing::warn!("Failed to close document {}: {}", file_path.display(), e);
+        }
     }
 
     tracing::info!(
