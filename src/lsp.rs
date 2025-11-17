@@ -169,6 +169,20 @@ impl LspServer {
         let id = self.send_request::<R>(params)?;
         let response = self.read_response_with_id(id)?;
 
+        // Check if the response contains an error
+        if let Some(error) = response.get("error") {
+            let error_message = error
+                .get("message")
+                .and_then(|m| m.as_str())
+                .unwrap_or("Unknown error");
+            let error_code = error.get("code").and_then(|c| c.as_i64()).unwrap_or(-1);
+            return Err(anyhow::anyhow!(
+                "LSP error (code {}): {}",
+                error_code,
+                error_message
+            ));
+        }
+
         // Extract the result field from the JSON-RPC response
         let result = response
             .get("result")
@@ -258,6 +272,19 @@ impl LspServer {
             .take()
             .ok_or_else(|| anyhow::anyhow!("Failed to get stdout"))?;
         let stdout = BufReader::new(stdout);
+
+        // Spawn a thread to consume stderr to prevent the LSP server from blocking
+        // when the stderr pipe fills up
+        if let Some(stderr) = process.stderr.take() {
+            let language_name = language.to_string();
+            std::thread::spawn(move || {
+                use std::io::BufRead;
+                let reader = BufReader::new(stderr);
+                for line in reader.lines().map_while(Result::ok) {
+                    tracing::debug!("[{} stderr] {}", language_name, line);
+                }
+            });
+        }
 
         Ok(LspServer {
             process,
