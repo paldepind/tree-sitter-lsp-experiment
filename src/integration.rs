@@ -7,6 +7,7 @@ use lsp_types::{
 use std::path::Path;
 use tree_sitter::Node;
 
+use crate::call_with_target::CallWithTarget;
 use crate::lsp::LspServer;
 
 fn point_to_position(point: tree_sitter::Point) -> Position {
@@ -52,17 +53,6 @@ pub fn goto_definition_for_node(
     lsp_server.request::<lsp_types::request::GotoDefinition>(params)
 }
 
-/// Result of finding a call and its definition
-#[derive(Debug, Clone)]
-pub struct CallDefinition {
-    /// The file path containing the call
-    pub file_path: std::path::PathBuf,
-    /// The tree-sitter node representing the call
-    pub call_node: tree_sitter::Node<'static>,
-    /// The LSP definition response for the call
-    pub definition: lsp_types::GotoDefinitionResponse,
-}
-
 /// Finds all function calls in a project and retrieves their definitions from the LSP server
 ///
 /// This function:
@@ -88,7 +78,7 @@ pub struct CallDefinition {
 pub fn find_all_call_targets(
     language: crate::Language,
     project_path: &Path,
-) -> Result<Vec<CallDefinition>> {
+) -> Result<Vec<CallWithTarget>> {
     use crate::file_search::FileSearchConfig;
     use crate::parser::{get_calls, parse_file};
     use lsp_types::{
@@ -145,7 +135,7 @@ pub fn find_all_call_targets(
     let mut total_calls = 0;
 
     // Process each file
-    for (index, file_path) in matching_files.iter().enumerate() {
+    for (index, file_path) in matching_files.iter().take(100).enumerate() {
         tracing::info!(
             "({index}/{}) Processing file: {}",
             matching_files.len(),
@@ -172,16 +162,15 @@ pub fn find_all_call_targets(
 
         // Open the document in the LSP server
         let file_uri = format!("file://{}", file_path.display());
-        if let Err(e) =
-            lsp_server.send_notification::<DidOpenTextDocument>(DidOpenTextDocumentParams {
-                text_document: TextDocumentItem {
-                    uri: file_uri.parse()?,
-                    language_id: language.to_string().to_lowercase(),
-                    version: 1,
-                    text: file_content.clone(),
-                },
-            })
-        {
+        let open_params = DidOpenTextDocumentParams {
+            text_document: TextDocumentItem {
+                uri: file_uri.parse()?,
+                language_id: language.to_string().to_lowercase(),
+                version: 1,
+                text: file_content.clone(),
+            },
+        };
+        if let Err(e) = lsp_server.send_notification::<DidOpenTextDocument>(open_params) {
             tracing::warn!("Failed to open document {}: {}", file_path.display(), e);
             continue;
         }
@@ -205,7 +194,7 @@ pub fn find_all_call_targets(
                     // This is safe because we're only storing the node data, not the reference
                     let static_node: Node<'static> = unsafe { std::mem::transmute(call_node) };
 
-                    results.push(CallDefinition {
+                    results.push(CallWithTarget {
                         file_path: file_path.clone(),
                         call_node: static_node,
                         definition,
