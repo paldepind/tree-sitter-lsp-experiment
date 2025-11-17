@@ -9,6 +9,7 @@ use tree_sitter::Node;
 
 use crate::call_with_target::CallWithTarget;
 use crate::lsp::LspServer;
+use crate::parse_file_content;
 
 fn point_to_position(point: tree_sitter::Point) -> Position {
     Position {
@@ -152,7 +153,7 @@ pub fn find_all_call_targets(
         };
 
         // Parse the file with tree-sitter
-        let tree = match parse_file(file_path, language) {
+        let tree = match parse_file_content(&file_content, language) {
             Ok(tree) => tree,
             Err(e) => {
                 tracing::warn!("Failed to parse file {}: {}", file_path.display(), e);

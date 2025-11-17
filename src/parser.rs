@@ -9,6 +9,37 @@ use tree_sitter::{Node, Parser, Tree, TreeCursor};
 
 use crate::Language;
 
+/// Parses source code content using Tree Sitter for the specified language
+///
+/// # Arguments
+/// * `source_code` - The source code string to parse
+/// * `language` - The programming language of the source code
+///
+/// # Returns
+/// * `Result<Tree>` - The parsed syntax tree or an error
+pub fn parse_file_content(source_code: &str, language: Language) -> Result<Tree> {
+    // Create a parser
+    let mut parser = Parser::new();
+
+    // Set the language-specific grammar
+    let ts_language = get_tree_sitter_language(language)?;
+    parser
+        .set_language(&ts_language)
+        .map_err(|e| anyhow::anyhow!("Failed to set language for parser: {}", e))?;
+
+    // Parse the source code
+    let tree = parser
+        .parse(source_code, None)
+        .ok_or_else(|| anyhow::anyhow!("Failed to parse source code"))?;
+
+    tracing::debug!(
+        "Successfully parsed source code ({} nodes in tree)",
+        tree.root_node().descendant_count()
+    );
+
+    Ok(tree)
+}
+
 /// Parses a file using Tree Sitter for the specified language
 ///
 /// # Arguments
@@ -22,19 +53,9 @@ pub fn parse_file(file_path: &Path, language: Language) -> Result<Tree> {
     let source_code = fs::read_to_string(file_path)
         .map_err(|e| anyhow::anyhow!("Failed to read file {}: {}", file_path.display(), e))?;
 
-    // Create a parser
-    let mut parser = Parser::new();
-
-    // Set the language-specific grammar
-    let ts_language = get_tree_sitter_language(language)?;
-    parser
-        .set_language(&ts_language)
-        .map_err(|e| anyhow::anyhow!("Failed to set language for parser: {}", e))?;
-
-    // Parse the source code
-    let tree = parser
-        .parse(&source_code, None)
-        .ok_or_else(|| anyhow::anyhow!("Failed to parse file {}", file_path.display()))?;
+    // Parse using the content parser
+    let tree = parse_file_content(&source_code, language)
+        .map_err(|e| anyhow::anyhow!("Failed to parse file {}: {}", file_path.display(), e))?;
 
     tracing::debug!(
         "Successfully parsed {} ({} nodes in tree)",
