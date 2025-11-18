@@ -9,7 +9,7 @@ use tree_sitter::Node;
 
 use crate::call_with_target::CallWithTarget;
 use crate::lsp::LspServer;
-use crate::parser::{get_calls, parse_file_content};
+use crate::parser::{CallNode, get_calls, parse_file_content};
 
 fn point_to_position(point: tree_sitter::Point) -> Position {
     Position {
@@ -185,9 +185,13 @@ pub fn find_all_call_targets(
         total_calls += calls.len();
 
         // For each call, get its definition
-        for call_node in calls {
+        for call in calls {
+            let CallNode {
+                call_node,
+                goto_definition_node,
+            } = call;
             // Query the LSP server for the definition
-            match goto_definition_for_node(&mut lsp_server, &call_node, file_path) {
+            match goto_definition_for_node(&mut lsp_server, &goto_definition_node, file_path) {
                 Ok(Some(definition)) => {
                     // We need to convert the node to a 'static lifetime by storing the tree
                     // Since we can't easily do that here, we'll use unsafe to extend the lifetime
@@ -296,7 +300,8 @@ func main() {
         // Find the greet() call (not the print() call)
         let greet_call = get_calls(&tree)
             .find(|node| {
-                node.utf8_text(swift_code.as_bytes())
+                node.call_node
+                    .utf8_text(swift_code.as_bytes())
                     .ok()
                     .map(|text| text.contains("greet"))
                     .unwrap_or(false)
@@ -336,7 +341,11 @@ func main() {
         })?;
 
         // Request go-to-definition for the call node
-        let result = goto_definition_for_node(&mut lsp_server, &greet_call, &file_path)?;
+        let result = goto_definition_for_node(
+            &mut lsp_server,
+            &greet_call.goto_definition_node,
+            &file_path,
+        )?;
 
         // Verify the definition points to the correct location
         let response = result.expect("Should find definition for greet function call");
