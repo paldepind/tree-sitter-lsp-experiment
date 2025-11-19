@@ -7,7 +7,7 @@ use std::fs;
 use std::path::Path;
 use tree_sitter::{Node, Parser, Tree, TreeCursor};
 
-use crate::Language;
+use crate::language::Language;
 
 /// Parses source code content using Tree Sitter for the specified language
 ///
@@ -17,7 +17,7 @@ use crate::Language;
 ///
 /// # Returns
 /// * `Result<Tree>` - The parsed syntax tree or an error
-pub fn parse_file_content(source_code: &str, language: Language) -> Result<Tree> {
+pub fn parse_file_content(source_code: &str, language: impl Language) -> Result<Tree> {
     // Create a parser
     let mut parser = Parser::new();
 
@@ -48,7 +48,7 @@ pub fn parse_file_content(source_code: &str, language: Language) -> Result<Tree>
 ///
 /// # Returns
 /// * `Result<Tree>` - The parsed syntax tree or an error
-pub fn parse_file(file_path: &Path, language: Language) -> Result<Tree> {
+pub fn parse_file(file_path: &Path, language: impl Language) -> Result<Tree> {
     // Read the file contents
     let source_code = fs::read_to_string(file_path)
         .map_err(|e| anyhow::anyhow!("Failed to read file {}: {}", file_path.display(), e))?;
@@ -87,9 +87,9 @@ pub struct CallNode<'tree> {
 ///
 /// # Example
 /// ```ignore
-/// let tree = parse_file(path, Language::Rust)?;
+/// let tree = parse_file(path, &RustLang)?;
 /// for call in get_calls(&tree) {
-///     println!("Found call: {:?}", call.call_node().kind());
+///     println!("Found call: {:?}", call.call_node.kind());
 /// }
 /// ```
 pub fn get_calls(tree: &Tree) -> impl Iterator<Item = CallNode<'_>> {
@@ -133,6 +133,17 @@ fn find_goto_definition_node<'a>(call_node: Node<'a>) -> Node<'a> {
             //     simple_identifier ("calc")
             //     navigation_suffix
             //       simple_identifier ("add") <- This is what we want
+            // (call_expression ; [5, 17] - [5, 31]
+            //   (navigation_expression ; [5, 17] - [5, 25]
+            //     target: (simple_identifier) ; [5, 17] - [5, 21]
+            //     suffix: (navigation_suffix ; [5, 21] - [5, 25]
+            //       suffix: **(simple_identifier)**)) ; [5, 22] - [5, 25]
+            //   (call_suffix ; [5, 25] - [5, 31]
+            //     (value_arguments ; [5, 25] - [5, 31]
+            //       (value_argument ; [5, 26] - [5, 27]
+            //         value: (integer_literal)) ; [5, 26] - [5, 27]
+            //       (value_argument ; [5, 29] - [5, 30]
+            //         value: (integer_literal)))))
             if child.kind() == "navigation_expression" {
                 // Find the navigation suffix which contains the method name
                 let mut nav_cursor = child.walk();
@@ -227,7 +238,7 @@ mod tests {
         writeln!(temp_file, "    println!(\"Hello, world!\");")?;
         writeln!(temp_file, "}}")?;
 
-        let tree = parse_file(temp_file.path(), Language::Rust)?;
+        let tree = parse_file(temp_file.path(), crate::RustLang)?;
         let root = tree.root_node();
 
         // Check that we got a valid tree
@@ -243,7 +254,7 @@ mod tests {
         writeln!(temp_file, "def hello():")?;
         writeln!(temp_file, "    print('Hello, world!')")?;
 
-        let tree = parse_file(temp_file.path(), Language::Python)?;
+        let tree = parse_file(temp_file.path(), crate::PythonLang)?;
         let root = tree.root_node();
 
         // Check that we got a valid tree
@@ -260,7 +271,7 @@ mod tests {
         writeln!(temp_file, "    console.log('Hello, world!');")?;
         writeln!(temp_file, "}}")?;
 
-        let tree = parse_file(temp_file.path(), Language::TypeScript)?;
+        let tree = parse_file(temp_file.path(), crate::TypeScriptLang)?;
         let root = tree.root_node();
 
         // Check that we got a valid tree
@@ -279,7 +290,7 @@ mod tests {
         writeln!(temp_file, "    println(\"Hello, world!\")")?;
         writeln!(temp_file, "}}")?;
 
-        let tree = parse_file(temp_file.path(), Language::Go)?;
+        let tree = parse_file(temp_file.path(), crate::GoLang)?;
         let root = tree.root_node();
 
         // Check that we got a valid tree
@@ -296,7 +307,7 @@ mod tests {
         writeln!(temp_file, "    print(\"Hello, world!\")")?;
         writeln!(temp_file, "}}")?;
 
-        let tree = parse_file(temp_file.path(), Language::Swift)?;
+        let tree = parse_file(temp_file.path(), crate::SwiftLang)?;
         let root = tree.root_node();
 
         // Check that we got a valid tree
@@ -308,7 +319,7 @@ mod tests {
 
     #[test]
     fn test_parse_nonexistent_file() {
-        let result = parse_file(Path::new("/nonexistent/file.rs"), Language::Rust);
+        let result = parse_file(Path::new("/nonexistent/file.rs"), crate::RustLang);
         assert!(result.is_err());
     }
 
@@ -318,7 +329,7 @@ mod tests {
         writeln!(temp_file, "fn main() {{ this is invalid rust")?;
 
         // Parser should still succeed but might have error nodes
-        let tree = parse_file(temp_file.path(), Language::Rust)?;
+        let tree = parse_file(temp_file.path(), crate::RustLang)?;
         let root = tree.root_node();
 
         // Tree should still be created even with errors
@@ -341,7 +352,7 @@ mod tests {
         writeln!(temp_file, "}}")?;
 
         let source = fs::read(temp_file.path())?;
-        let tree = parse_file(temp_file.path(), Language::Rust)?;
+        let tree = parse_file(temp_file.path(), crate::RustLang)?;
         let calls: Vec<_> = get_calls(&tree).collect();
 
         // Should find: println! (macro), calculate (call), foo (call)
@@ -369,7 +380,7 @@ mod tests {
         writeln!(temp_file, "    foo()")?;
 
         let source = fs::read(temp_file.path())?;
-        let tree = parse_file(temp_file.path(), Language::Python)?;
+        let tree = parse_file(temp_file.path(), crate::PythonLang)?;
         let calls: Vec<_> = get_calls(&tree).collect();
 
         // Should find: print, calculate, foo in that order
@@ -397,7 +408,7 @@ mod tests {
         writeln!(temp_file, "}}")?;
 
         let source = fs::read(temp_file.path())?;
-        let tree = parse_file(temp_file.path(), Language::TypeScript)?;
+        let tree = parse_file(temp_file.path(), crate::TypeScriptLang)?;
         let calls: Vec<_> = get_calls(&tree).collect();
 
         // Should find: console.log, calculate, new MyClass in that order
@@ -431,7 +442,7 @@ mod tests {
         writeln!(temp_file, "}}")?;
 
         let source = fs::read(temp_file.path())?;
-        let tree = parse_file(temp_file.path(), Language::Go)?;
+        let tree = parse_file(temp_file.path(), crate::GoLang)?;
         let calls: Vec<_> = get_calls(&tree).collect();
 
         // Should find: println, calculate in that order
@@ -455,7 +466,7 @@ mod tests {
         writeln!(temp_file, "}}")?;
 
         let source = fs::read(temp_file.path())?;
-        let tree = parse_file(temp_file.path(), Language::Swift)?;
+        let tree = parse_file(temp_file.path(), crate::SwiftLang)?;
         let calls: Vec<_> = get_calls(&tree).collect();
 
         // Should find: print, calculate in that order
@@ -468,7 +479,7 @@ mod tests {
         assert_eq!(def_text, "print");
 
         assert_eq!(calls[1].call_node.kind(), "call_expression");
-        assert!(calls[1].call_node.utf8_text(&source)?.contains("calculate"));
+        assert_eq!(calls[1].call_node.utf8_text(&source)?, "calculate(5, 10)");
         assert_eq!(calls[1].goto_definition_node.kind(), "simple_identifier");
         let def_text = calls[1].goto_definition_node.utf8_text(&source)?;
         assert_eq!(def_text, "calculate");
@@ -488,7 +499,7 @@ mod tests {
         writeln!(temp_file, "let result = calc.add(2, 3)")?;
 
         let source = fs::read(temp_file.path())?;
-        let tree = parse_file(temp_file.path(), Language::Swift)?;
+        let tree = parse_file(temp_file.path(), crate::SwiftLang)?;
         let calls: Vec<_> = get_calls(&tree).collect();
 
         // Should find the Calculator() constructor call and calc.add(2, 3) method call

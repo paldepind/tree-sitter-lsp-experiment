@@ -9,7 +9,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
-use crate::Language;
+use crate::language::Language;
 
 /// Configuration for LSP server startup
 #[derive(Debug, Clone, Default)]
@@ -21,9 +21,9 @@ pub struct LspServerConfig {
 }
 
 /// A running LSP server process
-pub struct LspServer {
+pub struct LspServer<L: Language> {
     pub process: Child,
-    pub language: Language,
+    pub language: L,
     pub working_dir: PathBuf,
     pub stdin: ChildStdin,
     pub stdout: BufReader<ChildStdout>,
@@ -40,24 +40,23 @@ fn request_string<T: serde::Serialize>(request: &T) -> Result<String> {
 }
 
 /// Returns installation instructions for the LSP server for the given language
-fn get_installation_instructions(language: Language) -> &'static str {
-    match language {
-        Language::Rust => {
-            "Install rust-analyzer: https://rust-analyzer.github.io/manual.html#installation"
-        }
-        Language::Python => "Install Python LSP Server: pip install python-lsp-server",
-        Language::TypeScript => {
+fn get_installation_instructions(language: impl Language) -> &'static str {
+    match language.cli_name() {
+        "rust" => "Install rust-analyzer: https://rust-analyzer.github.io/manual.html#installation",
+        "python" => "Install Python LSP Server: pip install python-lsp-server",
+        "typescript" => {
             "Install TypeScript Language Server: npm install -g typescript-language-server typescript"
         }
-        Language::Go => "Install gopls: go install golang.org/x/tools/gopls@latest",
-        Language::Swift => {
+        "go" => "Install gopls: go install golang.org/x/tools/gopls@latest",
+        "swift" => {
             "Install sourcekit-lsp: Install Xcode or Swift toolchain from https://swift.org/download/"
         }
+        _ => "LSP server not configured for this language",
     }
 }
 
 /// Checks if the required LSP server is available for the given language
-fn is_server_available(language: Language) -> bool {
+fn is_server_available(language: impl Language) -> bool {
     let (command, _) = language.lsp_server_command();
 
     // Try to execute the command with --version or --help to check availability
@@ -70,7 +69,7 @@ fn is_server_available(language: Language) -> bool {
     }
 }
 
-impl LspServer {
+impl<L: Language> LspServer<L> {
     /// Sends a request to the LSP server with an auto-incrementing ID
     pub fn send_request<R: Request>(&mut self, params: R::Params) -> Result<u64> {
         let id = self.next_id;
@@ -217,13 +216,13 @@ impl LspServer {
 
     /// Starts an LSP server for the specified language in the given directory
     pub fn start(
-        language: Language,
+        language: L,
         working_dir: PathBuf,
         config: LspServerConfig,
-    ) -> Result<LspServer> {
+    ) -> Result<LspServer<L>> {
         // Check if the LSP server is available
         if !is_server_available(language) {
-            let instructions = get_installation_instructions(language);
+            let instructions = get_installation_instructions(language.clone());
             return Err(anyhow::anyhow!(
                 "LSP server for {} is not available. {}",
                 language,
@@ -297,34 +296,10 @@ impl LspServer {
     }
 }
 
-impl Drop for LspServer {
+impl<L: Language> Drop for LspServer<L> {
     fn drop(&mut self) {
         if let Err(e) = self.stop() {
             tracing::error!("Error stopping LSP server in drop: {}", e);
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_lsp_server_installation_instructions() {
-        // Test that each language has installation instructions
-        for language in crate::Language::all() {
-            let instructions = get_installation_instructions(language);
-            assert!(
-                !instructions.is_empty(),
-                "Missing installation instructions for {}",
-                language
-            );
-            assert!(
-                instructions.contains(&language.to_string().to_lowercase())
-                    || instructions.contains(language.cli_name()),
-                "Installation instructions should mention the language: {}",
-                language
-            );
         }
     }
 }

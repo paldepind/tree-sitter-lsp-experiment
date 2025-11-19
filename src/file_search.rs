@@ -5,7 +5,7 @@ use regex::Regex;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::Language;
+use crate::language::Language;
 
 /// Configuration for file searching behavior
 #[derive(Debug, Clone)]
@@ -38,7 +38,11 @@ impl Default for FileSearchConfig {
 
 impl FileSearchConfig {
     /// Recursively finds all files in the given directory that match the language's file pattern
-    pub fn find_language_files(&self, dir_path: &Path, language: Language) -> Result<Vec<PathBuf>> {
+    pub fn find_language_files(
+        &self,
+        dir_path: &Path,
+        language: impl Language,
+    ) -> Result<Vec<PathBuf>> {
         let mut matching_files = Vec::new();
         let file_regex = language.file_regex()?;
 
@@ -100,6 +104,8 @@ impl FileSearchConfig {
 
 #[cfg(test)]
 mod tests {
+    use crate::RustLang;
+
     use super::*;
     use std::fs;
     use tempfile::TempDir;
@@ -125,7 +131,7 @@ mod tests {
         fs::write(temp_path.join("README.md"), "# Project")?; // Should not match
 
         let config = FileSearchConfig::default();
-        let rust_files = config.find_language_files(temp_path, Language::Rust)?;
+        let rust_files = config.find_language_files(temp_path, RustLang)?;
 
         assert_eq!(rust_files.len(), 3); // main.rs, lib.rs, integration.rs (target/debug/build.rs should be skipped)
 

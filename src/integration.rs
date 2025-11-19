@@ -7,6 +7,7 @@ use lsp_types::{
 use std::path::Path;
 use tree_sitter::Node;
 
+use crate::Language;
 use crate::call_with_target::CallWithTarget;
 use crate::lsp::LspServer;
 use crate::parser::{CallNode, get_calls, parse_file_content};
@@ -27,8 +28,8 @@ fn point_to_position(point: tree_sitter::Point) -> Position {
 ///
 /// # Returns
 /// The LSP GotoDefinition response, which may be None if no definition is found
-pub fn goto_definition_for_node(
-    lsp_server: &mut LspServer,
+pub fn goto_definition_for_node<L: crate::language::Language>(
+    lsp_server: &mut LspServer<L>,
     node: &Node,
     file_path: &Path,
 ) -> Result<Option<lsp_types::GotoDefinitionResponse>> {
@@ -71,13 +72,13 @@ pub fn goto_definition_for_node(
 ///
 /// # Example
 /// ```ignore
-/// let results = find_all_call_definitions(Language::Rust, &PathBuf::from("./my-project"))?;
+/// let results = find_all_call_definitions(&RustLang, &PathBuf::from("./my-project"))?
 /// for result in results {
 ///     println!("Call in {}: {:?}", result.file_path.display(), result.definition);
 /// }
 /// ```
-pub fn find_all_call_targets(
-    language: crate::Language,
+pub fn find_all_call_targets<L: Language>(
+    language: L,
     project_path: &Path,
 ) -> Result<Vec<CallWithTarget>> {
     use crate::file_search::FileSearchConfig;
@@ -262,7 +263,6 @@ pub fn find_all_call_targets(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Language;
     use crate::parser::{get_calls, parse_file};
     use lsp_types::{
         DidOpenTextDocumentParams, InitializeParams, InitializedParams, TextDocumentItem,
@@ -295,7 +295,7 @@ func main() {
         fs::write(&file_path, swift_code)?;
 
         // Parse the file with tree-sitter
-        let tree = parse_file(&file_path, Language::Swift)?;
+        let tree = parse_file(&file_path, crate::SwiftLang)?;
 
         // Find the greet() call (not the print() call)
         let greet_call = get_calls(&tree)
@@ -309,8 +309,8 @@ func main() {
             .expect("Should find the greet call");
 
         // Start the LSP server
-        let mut lsp_server = LspServer::start(
-            Language::Swift,
+        let mut lsp_server = LspServer::<crate::SwiftLang>::start(
+            crate::SwiftLang,
             temp_dir.path().to_path_buf(),
             Default::default(),
         )?;

@@ -9,5 +9,5 @@ pub mod parser;
 // Re-export main types
 pub use file_search::FileSearchConfig;
 pub use integration::{find_all_call_targets, goto_definition_for_node};
-pub use language::Language;
+pub use language::{GoLang, Language, PythonLang, RustLang, SwiftLang, TypeScriptLang};
 pub use lsp::{LspServer, LspServerConfig};

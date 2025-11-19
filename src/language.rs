@@ -2,156 +2,211 @@
 
 use anyhow::Result;
 use regex::Regex;
-use std::str::FromStr;
 
-/// Configuration for a language
-struct LanguageConfig {
-    display_name: &'static str,
-    cli_name: &'static str,
-    file_pattern: &'static str,
-    extensions: &'static str,
-    lsp_server_command: &'static str,
-    lsp_server_args: &'static [&'static str],
-    tree_sitter_language: tree_sitter_language::LanguageFn,
-}
-
-/// Supported programming languages for Tree Sitter parsing and LSP integration
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Language {
-    Rust,
-    Python,
-    TypeScript,
-    Go,
-    Swift,
-}
-
-impl Language {
-    /// Returns the configuration for this language
-    const fn config(&self) -> LanguageConfig {
-        match self {
-            Language::Rust => LanguageConfig {
-                display_name: "Rust",
-                cli_name: "rust",
-                file_pattern: r"\.rs$",
-                extensions: ".rs",
-                lsp_server_command: "rust-analyzer",
-                lsp_server_args: &[],
-                tree_sitter_language: tree_sitter_rust::LANGUAGE,
-            },
-            Language::Python => LanguageConfig {
-                display_name: "Python",
-                cli_name: "python",
-                file_pattern: r"\.py$",
-                extensions: ".py",
-                lsp_server_command: "pylsp",
-                lsp_server_args: &[],
-                tree_sitter_language: tree_sitter_python::LANGUAGE,
-            },
-            Language::TypeScript => LanguageConfig {
-                display_name: "TypeScript",
-                cli_name: "typescript",
-                file_pattern: r"\.(ts|tsx)$",
-                extensions: ".ts, .tsx",
-                lsp_server_command: "typescript-language-server",
-                lsp_server_args: &["--stdio"],
-                tree_sitter_language: tree_sitter_typescript::LANGUAGE_TYPESCRIPT,
-            },
-            Language::Go => LanguageConfig {
-                display_name: "Go",
-                cli_name: "go",
-                file_pattern: r"\.go$",
-                extensions: ".go",
-                lsp_server_command: "gopls",
-                lsp_server_args: &[],
-                tree_sitter_language: tree_sitter_go::LANGUAGE,
-            },
-            Language::Swift => LanguageConfig {
-                display_name: "Swift",
-                cli_name: "swift",
-                file_pattern: r"\.swift$",
-                extensions: ".swift",
-                lsp_server_command: "sourcekit-lsp",
-                lsp_server_args: &[],
-                tree_sitter_language: tree_sitter_swift::LANGUAGE,
-            },
-        }
-    }
-
-    /// Returns all supported languages
-    pub fn all() -> Vec<Language> {
-        vec![
-            Language::Rust,
-            Language::Python,
-            Language::TypeScript,
-            Language::Go,
-            Language::Swift,
-        ]
-    }
+/// Trait representing a programming language for Tree Sitter parsing and LSP integration
+pub trait Language: std::fmt::Debug + std::fmt::Display + Copy {
+    /// Returns the lowercase name used for command line arguments
+    fn cli_name(&self) -> &'static str;
 
     /// Returns a regex pattern that matches files for this language
-    pub fn file_pattern(&self) -> &'static str {
-        self.config().file_pattern
-    }
+    fn file_pattern(&self) -> &'static str;
+
+    /// Returns the file extensions for this language as a human-readable string
+    fn extensions(&self) -> &'static str;
+
+    /// Returns the display name for this language
+    fn display_name(&self) -> &'static str;
+
+    /// Returns the LSP server command and arguments for this language
+    fn lsp_server_command(&self) -> (&'static str, Vec<String>);
+
+    /// Returns the Tree Sitter language grammar for the given language
+    fn tree_sitter_language(&self) -> tree_sitter::Language;
 
     /// Creates a compiled regex for matching files of this language
-    pub fn file_regex(&self) -> Result<Regex> {
+    fn file_regex(&self) -> Result<Regex> {
         Regex::new(self.file_pattern())
             .map_err(|e| anyhow::anyhow!("Failed to compile regex: {}", e))
     }
+}
 
-    /// Returns the file extensions for this language as a human-readable string
-    pub fn extensions(&self) -> &'static str {
-        self.config().extensions
+/// Rust language implementation
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct RustLang;
+
+impl Language for RustLang {
+    fn cli_name(&self) -> &'static str {
+        "rust"
     }
 
-    /// Returns the lowercase name used for command line arguments
-    pub fn cli_name(&self) -> &'static str {
-        self.config().cli_name
+    fn file_pattern(&self) -> &'static str {
+        r"\.rs$"
     }
 
-    /// Returns the LSP server command and arguments for this language
-    pub fn lsp_server_command(&self) -> (&'static str, Vec<String>) {
-        let config = self.config();
-        let args = config
-            .lsp_server_args
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
-        (config.lsp_server_command, args)
+    fn extensions(&self) -> &'static str {
+        ".rs"
     }
 
-    /// Returns the Tree Sitter language grammar for the given language
-    pub fn tree_sitter_language(&self) -> tree_sitter::Language {
-        self.config().tree_sitter_language.into()
+    fn display_name(&self) -> &'static str {
+        "Rust"
+    }
+
+    fn lsp_server_command(&self) -> (&'static str, Vec<String>) {
+        ("rust-analyzer", vec![])
+    }
+
+    fn tree_sitter_language(&self) -> tree_sitter::Language {
+        tree_sitter_rust::LANGUAGE.into()
     }
 }
 
-impl FromStr for Language {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let s_lower = s.to_lowercase();
-        Language::all()
-            .into_iter()
-            .find(|lang| lang.cli_name() == s_lower)
-            .ok_or_else(|| {
-                let supported = Language::all()
-                    .iter()
-                    .map(|l| l.cli_name())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                anyhow::anyhow!(
-                    "Unsupported language: {}. Supported languages: {}",
-                    s,
-                    supported
-                )
-            })
-    }
-}
-
-impl std::fmt::Display for Language {
+impl std::fmt::Display for RustLang {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.config().display_name)
+        write!(f, "{}", self.display_name())
+    }
+}
+
+/// Python language implementation
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PythonLang;
+
+impl Language for PythonLang {
+    fn cli_name(&self) -> &'static str {
+        "python"
+    }
+
+    fn file_pattern(&self) -> &'static str {
+        r"\.py$"
+    }
+
+    fn extensions(&self) -> &'static str {
+        ".py"
+    }
+
+    fn display_name(&self) -> &'static str {
+        "Python"
+    }
+
+    fn lsp_server_command(&self) -> (&'static str, Vec<String>) {
+        ("pylsp", vec![])
+    }
+
+    fn tree_sitter_language(&self) -> tree_sitter::Language {
+        tree_sitter_python::LANGUAGE.into()
+    }
+}
+
+impl std::fmt::Display for PythonLang {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.display_name())
+    }
+}
+
+/// TypeScript language implementation
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TypeScriptLang;
+
+impl Language for TypeScriptLang {
+    fn cli_name(&self) -> &'static str {
+        "typescript"
+    }
+
+    fn file_pattern(&self) -> &'static str {
+        r"\.(ts|tsx)$"
+    }
+
+    fn extensions(&self) -> &'static str {
+        ".ts, .tsx"
+    }
+
+    fn display_name(&self) -> &'static str {
+        "TypeScript"
+    }
+
+    fn lsp_server_command(&self) -> (&'static str, Vec<String>) {
+        ("typescript-language-server", vec!["--stdio".to_string()])
+    }
+
+    fn tree_sitter_language(&self) -> tree_sitter::Language {
+        tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()
+    }
+}
+
+impl std::fmt::Display for TypeScriptLang {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.display_name())
+    }
+}
+
+/// Go language implementation
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct GoLang;
+
+impl Language for GoLang {
+    fn cli_name(&self) -> &'static str {
+        "go"
+    }
+
+    fn file_pattern(&self) -> &'static str {
+        r"\.go$"
+    }
+
+    fn extensions(&self) -> &'static str {
+        ".go"
+    }
+
+    fn display_name(&self) -> &'static str {
+        "Go"
+    }
+
+    fn lsp_server_command(&self) -> (&'static str, Vec<String>) {
+        ("gopls", vec![])
+    }
+
+    fn tree_sitter_language(&self) -> tree_sitter::Language {
+        tree_sitter_go::LANGUAGE.into()
+    }
+}
+
+impl std::fmt::Display for GoLang {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.display_name())
+    }
+}
+
+/// Swift language implementation
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SwiftLang;
+
+impl Language for SwiftLang {
+    fn cli_name(&self) -> &'static str {
+        "swift"
+    }
+
+    fn file_pattern(&self) -> &'static str {
+        r"\.swift$"
+    }
+
+    fn extensions(&self) -> &'static str {
+        ".swift"
+    }
+
+    fn display_name(&self) -> &'static str {
+        "Swift"
+    }
+
+    fn lsp_server_command(&self) -> (&'static str, Vec<String>) {
+        ("sourcekit-lsp", vec![])
+    }
+
+    fn tree_sitter_language(&self) -> tree_sitter::Language {
+        tree_sitter_swift::LANGUAGE.into()
+    }
+}
+
+impl std::fmt::Display for SwiftLang {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.display_name())
     }
 }
 
@@ -160,36 +215,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_language_from_str() {
-        assert_eq!(Language::from_str("rust").unwrap(), Language::Rust);
-        assert_eq!(Language::from_str("RUST").unwrap(), Language::Rust);
-        assert_eq!(Language::from_str("python").unwrap(), Language::Python);
-        assert_eq!(
-            Language::from_str("typescript").unwrap(),
-            Language::TypeScript
-        );
-        assert_eq!(Language::from_str("go").unwrap(), Language::Go);
-
-        assert!(Language::from_str("java").is_err());
-    }
-
-    #[test]
     fn test_language_patterns() {
-        assert_eq!(Language::Rust.file_pattern(), r"\.rs$");
-        assert_eq!(Language::Python.file_pattern(), r"\.py$");
-        assert_eq!(Language::TypeScript.file_pattern(), r"\.(ts|tsx)$");
-        assert_eq!(Language::Go.file_pattern(), r"\.go$");
+        assert_eq!(RustLang.file_pattern(), r"\.rs$");
+        assert_eq!(PythonLang.file_pattern(), r"\.py$");
+        assert_eq!(TypeScriptLang.file_pattern(), r"\.(ts|tsx)$");
+        assert_eq!(GoLang.file_pattern(), r"\.go$");
     }
 
     #[test]
     fn test_file_regex() {
-        let rust_regex = Language::Rust.file_regex().unwrap();
+        let rust_regex = RustLang.file_regex().unwrap();
         assert!(rust_regex.is_match("main.rs"));
         assert!(rust_regex.is_match("lib.rs"));
         assert!(!rust_regex.is_match("main.py"));
         assert!(!rust_regex.is_match("main.rs.bak"));
 
-        let ts_regex = Language::TypeScript.file_regex().unwrap();
+        let ts_regex = TypeScriptLang.file_regex().unwrap();
         assert!(ts_regex.is_match("app.ts"));
         assert!(ts_regex.is_match("component.tsx"));
         assert!(!ts_regex.is_match("app.js"));
