@@ -10,7 +10,7 @@ use tree_sitter::Node;
 use crate::Language;
 use crate::call_with_target::CallWithTarget;
 use crate::lsp::LspServer;
-use crate::parser::{CallNode, get_calls, parse_file_content};
+use crate::parser::{CallNode, display_node_location, get_calls, parse_file_content};
 
 /// Results from analyzing calls in a project
 #[derive(Debug, Clone)]
@@ -223,31 +223,25 @@ pub fn find_all_call_targets<L: Language>(
                         definition,
                     });
                     tracing::debug!(
-                        "Found definition for call at {}:{}:{}",
-                        file_path.display(),
-                        call_node.start_position().row,
-                        call_node.start_position().column
+                        "Found definition for call at {}",
+                        display_node_location(file_path, call_node)
                     );
                 }
                 Ok(None) => {
-                    tracing::debug!(
-                        "No definition found for call at {}:{}:{}",
-                        file_path.display(),
-                        call_node.start_position().row,
-                        call_node.start_position().column
+                    tracing::warn!(
+                        "No definition found for call at {}",
+                        display_node_location(file_path, call_node)
                     );
                     if let Some(lines) = call.pretty_print(&source_lines) {
                         for line in lines {
-                            tracing::debug!("{}", line);
+                            tracing::warn!("{}", line);
                         }
                     }
                 }
                 Err(e) => {
-                    tracing::debug!(
-                        "Failed to get definition for call at {}:{}:{}: {}",
-                        file_path.display(),
-                        call_node.start_position().row,
-                        call_node.start_position().column,
+                    tracing::warn!(
+                        "Failed to get definition for call at {}: {}",
+                        display_node_location(file_path, call_node),
                         e
                     );
                 }

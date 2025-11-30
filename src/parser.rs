@@ -3,6 +3,7 @@
 //! It includes support for finding calls across multiple programming languages.
 
 use anyhow::Result;
+use std::fmt::Display;
 use std::fs;
 use std::path::Path;
 use tree_sitter::{Node, Parser, Tree, TreeCursor};
@@ -64,6 +65,23 @@ pub fn parse_file(file_path: &Path, language: impl Language) -> Result<Tree> {
     );
 
     Ok(tree)
+}
+
+struct DisplayNodeLocation<'a> {
+    file_path: &'a Path,
+    node: Node<'a>,
+}
+
+impl Display for DisplayNodeLocation<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let row = self.node.start_position().row + 1;
+        let column = self.node.start_position().column + 1;
+        write!(f, "{}:{}:{}", self.file_path.display(), row, column)
+    }
+}
+
+pub fn display_node_location<'a>(file_path: &'a Path, node: Node<'a>) -> impl 'a + Display {
+    DisplayNodeLocation { file_path, node }
 }
 
 pub struct CallNode<'tree> {
