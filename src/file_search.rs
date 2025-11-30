@@ -14,8 +14,10 @@ pub struct FileSearchConfig {
     pub skip_dirs: Vec<String>,
     /// Maximum depth for recursive search (None = unlimited)
     pub max_depth: Option<usize>,
-    /// Optional glob pattern to filter files (None = no filtering)
+    /// Optional glob pattern to include only matching files (None = no filtering)
     pub include_glob: Option<glob::Pattern>,
+    /// Optional glob pattern to exclude matching files (None = no filtering)
+    pub exclude_glob: Option<glob::Pattern>,
 }
 
 impl Default for FileSearchConfig {
@@ -35,6 +37,7 @@ impl Default for FileSearchConfig {
             ],
             max_depth: None,
             include_glob: None,
+            exclude_glob: None,
         }
     }
 }
@@ -53,6 +56,7 @@ impl FileSearchConfig {
             dir_path,
             &file_regex,
             &self.include_glob,
+            &self.exclude_glob,
             &mut matching_files,
             0,
         )?;
@@ -67,12 +71,14 @@ impl FileSearchConfig {
             false
         }
     }
+
     /// Helper function to recursively traverse directories and find matching files
     fn find_files_recursive(
         &self,
         dir: &Path,
         regex: &Regex,
-        glob_matcher: &Option<glob::Pattern>,
+        include_glob: &Option<glob::Pattern>,
+        exclude_glob: &Option<glob::Pattern>,
         results: &mut Vec<PathBuf>,
         current_depth: usize,
     ) -> Result<()> {
@@ -98,16 +104,33 @@ impl FileSearchConfig {
 
             if path.is_dir() && !self.is_dir_skipped(&path) {
                 // Recursively search subdirectories
-                self.find_files_recursive(&path, regex, glob_matcher, results, current_depth + 1)?;
+                self.find_files_recursive(
+                    &path,
+                    regex,
+                    include_glob,
+                    exclude_glob,
+                    results,
+                    current_depth + 1,
+                )?;
             } else if path.is_file()
                 && let Some(file_name) = path.file_name().and_then(|n| n.to_str())
                 && regex.is_match(file_name)
             {
-                // Check glob pattern if one is specified
-                if let Some(pattern) = glob_matcher
-                    && let Some(path_str) = path.to_str()
+                let path_str = path.to_str();
+
+                // Check exclude pattern first - if it matches, skip this file
+                if let Some(exclude_pattern) = exclude_glob
+                    && let Some(path_str) = path_str
+                    && exclude_pattern.matches(path_str)
                 {
-                    if pattern.matches(path_str) {
+                    continue;
+                }
+
+                // Check include pattern if one is specified
+                if let Some(include_pattern) = include_glob
+                    && let Some(path_str) = path_str
+                {
+                    if include_pattern.matches(path_str) {
                         results.push(path);
                     }
                 } else {
