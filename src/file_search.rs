@@ -14,6 +14,8 @@ pub struct FileSearchConfig {
     pub skip_dirs: Vec<String>,
     /// Maximum depth for recursive search (None = unlimited)
     pub max_depth: Option<usize>,
+    /// Optional glob pattern to filter files (None = no filtering)
+    pub include_glob: Option<glob::Pattern>,
 }
 
 impl Default for FileSearchConfig {
@@ -32,6 +34,7 @@ impl Default for FileSearchConfig {
                 "venv".to_string(),
             ],
             max_depth: None,
+            include_glob: None,
         }
     }
 }
@@ -46,7 +49,13 @@ impl FileSearchConfig {
         let mut matching_files = Vec::new();
         let file_regex = language.file_regex()?;
 
-        self.find_files_recursive(dir_path, &file_regex, &mut matching_files, 0)?;
+        self.find_files_recursive(
+            dir_path,
+            &file_regex,
+            &self.include_glob,
+            &mut matching_files,
+            0,
+        )?;
 
         Ok(matching_files)
     }
@@ -58,12 +67,12 @@ impl FileSearchConfig {
             false
         }
     }
-
     /// Helper function to recursively traverse directories and find matching files
     fn find_files_recursive(
         &self,
         dir: &Path,
         regex: &Regex,
+        glob_matcher: &Option<glob::Pattern>,
         results: &mut Vec<PathBuf>,
         current_depth: usize,
     ) -> Result<()> {
@@ -89,12 +98,21 @@ impl FileSearchConfig {
 
             if path.is_dir() && !self.is_dir_skipped(&path) {
                 // Recursively search subdirectories
-                self.find_files_recursive(&path, regex, results, current_depth + 1)?;
+                self.find_files_recursive(&path, regex, glob_matcher, results, current_depth + 1)?;
             } else if path.is_file()
                 && let Some(file_name) = path.file_name().and_then(|n| n.to_str())
                 && regex.is_match(file_name)
             {
-                results.push(path);
+                // Check glob pattern if one is specified
+                if let Some(pattern) = glob_matcher
+                    && let Some(path_str) = path.to_str()
+                {
+                    if pattern.matches(path_str) {
+                        results.push(path);
+                    }
+                } else {
+                    results.push(path);
+                }
             }
         }
 

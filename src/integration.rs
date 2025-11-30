@@ -92,8 +92,8 @@ pub fn goto_definition_for_node<L: crate::language::Language>(
 pub fn find_all_call_targets<L: Language>(
     language: L,
     project_path: &Path,
+    config: &crate::file_search::FileSearchConfig,
 ) -> Result<CallAnalysisResults> {
-    use crate::file_search::FileSearchConfig;
     use lsp_types::{
         DidOpenTextDocumentParams, InitializeParams, InitializedParams, TextDocumentItem,
         WorkspaceFolder,
@@ -106,7 +106,6 @@ pub fn find_all_call_targets<L: Language>(
 
     // Find all files matching the language
     tracing::info!("Scanning for {} files in project...", language);
-    let config = FileSearchConfig::default();
     let matching_files = config.find_language_files(project_path, language)?;
     tracing::info!("Found {} {} files", matching_files.len(), language);
 
