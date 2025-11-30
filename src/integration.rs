@@ -8,9 +8,10 @@ use std::path::Path;
 use tree_sitter::Node;
 
 use crate::Language;
+use crate::call_node::CallNode;
 use crate::call_with_target::CallWithTarget;
 use crate::lsp::LspServer;
-use crate::parser::{CallNode, display_node_location, get_calls, parse_file_content};
+use crate::parser::{display_node_location, get_calls, parse_file_content};
 
 /// Results from analyzing calls in a project
 #[derive(Debug, Clone)]

@@ -1,4 +1,5 @@
 // Module declarations
+pub mod call_node;
 pub mod call_with_target;
 pub mod file_search;
 pub mod integration;
