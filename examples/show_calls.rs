@@ -38,39 +38,14 @@ fn process_file<L: Language>(file_path: &Path, language: L) -> Result<()> {
 
     // Pretty print each call
     for (idx, call) in calls.iter().enumerate() {
-        let line_num = call.call_node.start_position().row;
-        let call_start_col = call.call_node.start_position().column;
-        let call_end_col = call.call_node.end_position().column;
-        let goto_start_col = call.goto_definition_node.start_position().column;
-        let goto_end_col = call.goto_definition_node.end_position().column;
-
-        // Only show if both call and goto are on the same line
-        if call.call_node.start_position().row == call.call_node.end_position().row
-            && call.goto_definition_node.start_position().row
-                == call.goto_definition_node.end_position().row
-            && call.call_node.start_position().row == call.goto_definition_node.start_position().row
-        {
-            if let Some(source_line) = source_lines.get(line_num) {
-                println!("{}: {}", line_num + 1, source_line);
-
-                // Create underline for call node
-                let mut call_underline = String::new();
-                call_underline.push_str(" ".repeat(call_start_col).as_str());
-                call_underline.push_str("^".repeat(call_end_col - call_start_col).as_str());
-
-                // Create underline for goto definition node
-                let mut goto_underline = String::new();
-                goto_underline.push_str(" ".repeat(goto_start_col).as_str());
-                goto_underline.push_str("^".repeat(goto_end_col - goto_start_col).as_str());
-
-                // Print with proper indentation (matching line number width)
-                let indent = " ".repeat(format!("{}", line_num + 1).len() + 2);
-                println!("{}{} call", indent, call_underline);
-                println!("{}{} goto definition", indent, goto_underline);
-                println!();
+        if let Some(lines) = call.pretty_print(&source_lines) {
+            for line in lines {
+                println!("{}", line);
             }
+            println!();
         } else {
             // Multi-line call - show basic info
+            let line_num = call.call_node.start_position().row;
             println!(
                 "Call #{}: line {} (multi-line, spans {}:{} to {}:{})",
                 idx + 1,
