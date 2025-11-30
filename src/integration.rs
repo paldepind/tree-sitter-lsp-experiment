@@ -12,6 +12,15 @@ use crate::call_with_target::CallWithTarget;
 use crate::lsp::LspServer;
 use crate::parser::{CallNode, get_calls, parse_file_content};
 
+/// Results from analyzing calls in a project
+#[derive(Debug, Clone)]
+pub struct CallAnalysisResults {
+    /// Calls that have definitions found by the LSP server
+    pub calls_with_targets: Vec<CallWithTarget>,
+    /// Total number of calls found (including those without definitions)
+    pub total_calls: usize,
+}
+
 fn point_to_position(point: tree_sitter::Point) -> Position {
     Position {
         line: point.row as u32,
@@ -68,19 +77,22 @@ pub fn goto_definition_for_node<L: crate::language::Language>(
 /// * `project_path` - The root directory of the project to analyze
 ///
 /// # Returns
-/// A vector of tuples containing (file_path, call_node, definition_response)
+/// A CallAnalysisResults struct containing:
+/// - `calls_with_targets`: A vector of CallWithTarget structs (calls with their definitions)
+/// - `total_calls`: The total number of calls found (including those without definitions)
 ///
 /// # Example
 /// ```ignore
 /// let results = find_all_call_definitions(&RustLang, &PathBuf::from("./my-project"))?
-/// for result in results {
-///     println!("Call in {}: {:?}", result.file_path.display(), result.definition);
+/// println!("Found {} definitions out of {} total calls", results.calls_with_targets.len(), results.total_calls);
+/// for call in &results.calls_with_targets {
+///     println!("Call in {}: {:?}", call.file_path.display(), call.definition);
 /// }
 /// ```
 pub fn find_all_call_targets<L: Language>(
     language: L,
     project_path: &Path,
-) -> Result<Vec<CallWithTarget>> {
+) -> Result<CallAnalysisResults> {
     use crate::file_search::FileSearchConfig;
     use lsp_types::{
         DidOpenTextDocumentParams, InitializeParams, InitializedParams, TextDocumentItem,
@@ -100,7 +112,10 @@ pub fn find_all_call_targets<L: Language>(
 
     if matching_files.is_empty() {
         tracing::warn!("No files found for language {}", language);
-        return Ok(results);
+        return Ok(CallAnalysisResults {
+            calls_with_targets: results,
+            total_calls: 0,
+        });
     }
 
     // Start LSP server
@@ -136,7 +151,7 @@ pub fn find_all_call_targets<L: Language>(
     let mut total_calls = 0;
 
     // Process each file
-    for (index, file_path) in matching_files.iter().take(100).enumerate() {
+    for (index, file_path) in matching_files.iter().take(50).enumerate() {
         tracing::info!(
             "({index}/{}) Processing file: {}",
             matching_files.len(),
@@ -185,6 +200,9 @@ pub fn find_all_call_targets<L: Language>(
         tracing::debug!("Found {} calls in {}", calls.len(), file_path.display());
         total_calls += calls.len();
 
+        // Split source into lines for display
+        let source_lines: Vec<&str> = file_content.lines().collect();
+
         // For each call, get its definition
         for call in calls {
             let CallNode {
@@ -218,6 +236,11 @@ pub fn find_all_call_targets<L: Language>(
                         call_node.start_position().row,
                         call_node.start_position().column
                     );
+                    if let Some(lines) = call.pretty_print(&source_lines) {
+                        for line in lines {
+                            tracing::debug!("{}", line);
+                        }
+                    }
                 }
                 Err(e) => {
                     tracing::debug!(
@@ -257,7 +280,10 @@ pub fn find_all_call_targets<L: Language>(
         tracing::error!("Error stopping LSP server: {}", e);
     }
 
-    Ok(results)
+    Ok(CallAnalysisResults {
+        calls_with_targets: results,
+        total_calls,
+    })
 }
 
 #[cfg(test)]
