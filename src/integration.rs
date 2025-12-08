@@ -7,11 +7,11 @@ use lsp_types::{
 use std::path::Path;
 use tree_sitter::Node;
 
-use crate::Language;
 use crate::call_node::CallNode;
 use crate::call_with_target::CallWithTarget;
 use crate::lsp::LspServer;
 use crate::parser::{display_node_location, get_calls, parse_file_content};
+use crate::{Language, LspServerConfig};
 
 /// Results from analyzing calls in a project
 #[derive(Debug, Clone)]
@@ -40,23 +40,19 @@ fn point_to_position(point: tree_sitter::Point) -> Position {
 /// The LSP GotoDefinition response, which may be None if no definition is found
 pub fn goto_definition_for_node<L: crate::language::Language>(
     lsp_server: &mut LspServer<L>,
-    node: Node,
     file_path: &Path,
+    node: Node,
 ) -> Result<Option<lsp_types::GotoDefinitionResponse>> {
     let start_time = std::time::Instant::now();
     // Get the starting position of the node
-    let start = node.start_position();
-
     // Create the file URI
-    let file_uri = format!("file://{}", file_path.display());
-
     // Create the goto definition parameters
     let params = GotoDefinitionParams {
         text_document_position_params: TextDocumentPositionParams {
             text_document: TextDocumentIdentifier {
-                uri: file_uri.parse()?,
+                uri: format!("file://{}", file_path.display()).parse()?,
             },
-            position: point_to_position(start),
+            position: point_to_position(node.start_position()),
         },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
@@ -103,12 +99,6 @@ pub fn find_all_call_targets<L: Language>(
     project_path: &Path,
     config: &crate::file_search::FileSearchConfig,
 ) -> Result<CallAnalysisResults> {
-    use lsp_types::{
-        DidOpenTextDocumentParams, InitializeParams, InitializedParams, TextDocumentItem,
-        WorkspaceFolder,
-        notification::{DidOpenTextDocument, Initialized},
-        request::Initialize,
-    };
     use std::fs;
 
     let mut results = Vec::new();
@@ -126,33 +116,13 @@ pub fn find_all_call_targets<L: Language>(
         });
     }
 
-    // Start LSP server
+    // Start and initialize LSP server
     tracing::info!("Starting LSP server for {}...", language);
-    let mut lsp_server = LspServer::start(
+    let mut lsp_server = LspServer::start_and_init(
         language,
         project_path.to_path_buf(),
-        crate::lsp::LspServerConfig::default(),
+        LspServerConfig::default(),
     )?;
-
-    // Initialize the LSP server
-    tracing::info!("Initializing LSP server...");
-    let workspace_uri = format!("file://{}", project_path.display()).parse()?;
-    let initialize_params = InitializeParams {
-        process_id: Some(std::process::id()),
-        workspace_folders: Some(vec![WorkspaceFolder {
-            uri: workspace_uri,
-            name: project_path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("workspace")
-                .to_string(),
-        }]),
-        ..Default::default()
-    };
-
-    lsp_server.request::<Initialize>(initialize_params)?;
-    lsp_server.send_notification::<Initialized>(InitializedParams {})?;
-    tracing::info!("LSP server initialized");
 
     let mut total_calls = 0;
 
@@ -183,16 +153,7 @@ pub fn find_all_call_targets<L: Language>(
         };
 
         // Open the document in the LSP server
-        let file_uri = format!("file://{}", file_path.display());
-        let open_params = DidOpenTextDocumentParams {
-            text_document: TextDocumentItem {
-                uri: file_uri.parse()?,
-                language_id: language.to_string().to_lowercase(),
-                version: 1,
-                text: file_content.clone(),
-            },
-        };
-        if let Err(e) = lsp_server.send_notification::<DidOpenTextDocument>(open_params) {
+        if let Err(e) = lsp_server.open_file(file_path, &file_content) {
             tracing::warn!("Failed to open document {}: {}", file_path.display(), e);
             continue;
         }
@@ -216,7 +177,7 @@ pub fn find_all_call_targets<L: Language>(
                 goto_definition_node,
             } = call;
             // Query the LSP server for the definition
-            match goto_definition_for_node(&mut lsp_server, goto_definition_node, file_path) {
+            match goto_definition_for_node(&mut lsp_server, file_path, goto_definition_node) {
                 Ok(Some(definition)) => {
                     // We need to convert the node to a 'static lifetime by storing the tree
                     // Since we can't easily do that here, we'll use unsafe to extend the lifetime
@@ -255,14 +216,7 @@ pub fn find_all_call_targets<L: Language>(
         }
 
         // Close the document in the LSP server
-        let close_params = lsp_types::DidCloseTextDocumentParams {
-            text_document: lsp_types::TextDocumentIdentifier {
-                uri: file_uri.parse()?,
-            },
-        };
-        if let Err(e) = lsp_server
-            .send_notification::<lsp_types::notification::DidCloseTextDocument>(close_params)
-        {
+        if let Err(e) = lsp_server.close_file(file_path) {
             tracing::warn!("Failed to close document {}: {}", file_path.display(), e);
         }
     }
@@ -290,9 +244,7 @@ mod tests {
     use super::*;
     use crate::parser::{get_calls, parse_file};
     use lsp_types::{
-        DidOpenTextDocumentParams, InitializeParams, InitializedParams, TextDocumentItem,
-        notification::{DidOpenTextDocument, Initialized},
-        request::Initialize,
+        InitializeParams, InitializedParams, notification::Initialized, request::Initialize,
     };
     use std::fs;
     use tempfile::TempDir;
@@ -355,19 +307,11 @@ func main() {
         lsp_server.send_notification::<Initialized>(InitializedParams {})?;
 
         // Open the document
-        let file_uri = format!("file://{}", file_path.display());
-        lsp_server.send_notification::<DidOpenTextDocument>(DidOpenTextDocumentParams {
-            text_document: TextDocumentItem {
-                uri: file_uri.parse()?,
-                language_id: "swift".to_string(),
-                version: 1,
-                text: swift_code.to_string(),
-            },
-        })?;
+        lsp_server.open_file(&file_path, swift_code)?;
 
         // Request go-to-definition for the call node
         let result =
-            goto_definition_for_node(&mut lsp_server, greet_call.goto_definition_node, &file_path)?;
+            goto_definition_for_node(&mut lsp_server, &file_path, greet_call.goto_definition_node)?;
 
         // Verify the definition points to the correct location
         let response = result.expect("Should find definition for greet function call");

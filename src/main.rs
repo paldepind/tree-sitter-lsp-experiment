@@ -1,9 +1,7 @@
 use anyhow::Result;
 use lsp_types::{
-    DidOpenTextDocumentParams, GotoDefinitionParams, InitializeParams, InitializedParams, Position,
-    TextDocumentIdentifier, TextDocumentItem, TextDocumentPositionParams, WorkspaceFolder,
-    notification::{DidOpenTextDocument, Initialized},
-    request::{GotoDefinition, Initialize},
+    GotoDefinitionParams, Position, TextDocumentIdentifier, TextDocumentPositionParams,
+    request::GotoDefinition,
 };
 use std::env;
 use std::path::PathBuf;
@@ -30,39 +28,15 @@ fn start<L: Language + Copy>(language: L, project_path: PathBuf) -> Result<()> {
         tracing::info!("  {}", file.display());
     }
 
-    // Start LSP server for the language
+    // Start and initialize LSP server for the language
     tracing::info!("Starting LSP server for {}...", language);
     let mut lsp_server =
-        LspServer::<L>::start(language, project_path.clone(), LspServerConfig::default())?;
+        LspServer::<L>::start_and_init(language, project_path.clone(), LspServerConfig::default())?;
 
     tracing::info!(
         "LSP server started successfully in: {}",
         lsp_server.working_dir.display()
     );
-
-    // Send Initialize request
-    tracing::info!("Sending initialize request...");
-    let workspace_uri = format!("file://{}", project_path.display()).parse()?;
-
-    let initialize_params = InitializeParams {
-        process_id: Some(std::process::id()),
-        workspace_folders: Some(vec![WorkspaceFolder {
-            uri: workspace_uri,
-            name: project_path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("workspace")
-                .to_string(),
-        }]),
-        ..Default::default()
-    };
-
-    let _init_response = lsp_server.request::<Initialize>(initialize_params)?;
-    tracing::info!("Received initialize response");
-
-    // Send initialized notification
-    lsp_server.send_notification::<Initialized>(InitializedParams {})?;
-    tracing::info!("Sent initialized notification");
 
     // Request definition for ScrollOffset.swift, line 31, character 17
     // let file_path = project_path.join("SignalUI/Appearance/SwiftUI/ScrollOffset.swift");
@@ -74,14 +48,7 @@ fn start<L: Language + Copy>(language: L, project_path: PathBuf) -> Result<()> {
 
     // Send textDocument/didOpen notification
     tracing::info!("Opening document: {}", &file_path.display());
-    lsp_server.send_notification::<DidOpenTextDocument>(DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: file_uri.parse()?,
-            language_id: language.to_string().to_lowercase(),
-            version: 1,
-            text: file_content.clone(),
-        },
-    })?;
+    lsp_server.open_file(&file_path, &file_content)?;
 
     // Give rust-analyzer time to index the project
     // rust-analyzer needs to load and analyze the project which can take a moment

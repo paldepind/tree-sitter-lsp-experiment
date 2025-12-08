@@ -2,8 +2,9 @@
 //! as convenience functions for communicating with it.
 
 use anyhow::Result;
-use lsp_types::notification::Notification;
+use lsp_types::notification::{DidOpenTextDocument, Notification};
 use lsp_types::request::Request;
+use lsp_types::{DidOpenTextDocumentParams, TextDocumentItem};
 use serde_json::{from_value, to_value};
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
@@ -113,6 +114,40 @@ impl<L: Language> LspServer<L> {
         self.stdin.flush()?;
 
         Ok(())
+    }
+
+    /// Opens a file in the LSP server
+    ///
+    /// This sends a `textDocument/didOpen` notification to inform the LSP server
+    /// that a file is now open for editing.
+    pub fn open_file(&mut self, file_path: &std::path::Path, file_content: &str) -> Result<()> {
+        self.send_notification::<DidOpenTextDocument>(DidOpenTextDocumentParams {
+            text_document: TextDocumentItem {
+                uri: format!("file://{}", file_path.display()).parse()?,
+                language_id: self.language.to_string().to_lowercase(),
+                version: 1,
+                text: file_content.to_string(),
+            },
+        })
+    }
+
+    /// Closes a file in the LSP server
+    ///
+    /// This sends a `textDocument/didClose` notification to inform the LSP server
+    /// that a file is no longer open.
+    pub fn close_file(&mut self, file_path: &std::path::Path) -> Result<()> {
+        use lsp_types::{
+            DidCloseTextDocumentParams, TextDocumentIdentifier, notification::DidCloseTextDocument,
+        };
+
+        let file_uri = format!("file://{}", file_path.display());
+        let params = DidCloseTextDocumentParams {
+            text_document: TextDocumentIdentifier {
+                uri: file_uri.parse()?,
+            },
+        };
+
+        self.send_notification::<DidCloseTextDocument>(params)
     }
 
     /// Reads a response from the LSP server
@@ -293,6 +328,44 @@ impl<L: Language> LspServer<L> {
             stdout,
             next_id: 1,
         })
+    }
+
+    /// Starts and initializes an LSP server for the specified language in the given directory
+    ///
+    /// This is a convenience method that combines `start()` with the initialization sequence
+    /// required by the LSP protocol (sending Initialize request and Initialized notification).
+    pub fn start_and_init(
+        language: L,
+        working_dir: PathBuf,
+        config: LspServerConfig,
+    ) -> Result<LspServer<L>> {
+        use lsp_types::notification::Initialized;
+        use lsp_types::request::Initialize;
+        use lsp_types::{InitializeParams, InitializedParams, WorkspaceFolder};
+
+        let mut server = Self::start(language, working_dir.clone(), config)?;
+
+        // Initialize the LSP server
+        tracing::info!("Initializing LSP server...");
+        let workspace_uri = format!("file://{}", working_dir.display()).parse()?;
+        let initialize_params = InitializeParams {
+            process_id: Some(std::process::id()),
+            workspace_folders: Some(vec![WorkspaceFolder {
+                uri: workspace_uri,
+                name: working_dir
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("workspace")
+                    .to_string(),
+            }]),
+            ..Default::default()
+        };
+
+        server.request::<Initialize>(initialize_params)?;
+        server.send_notification::<Initialized>(InitializedParams {})?;
+        tracing::info!("LSP server initialized");
+
+        Ok(server)
     }
 }
 
