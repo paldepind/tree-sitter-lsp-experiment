@@ -507,27 +507,34 @@ mod tests {
         writeln!(temp_file, "}}")?;
         writeln!(temp_file, "let calc = Calculator()")?;
         writeln!(temp_file, "let result = calc.add(2, 3)")?;
+        writeln!(
+            temp_file,
+            "let digest = Foo<UInt8>.allocate(capacity: length)"
+        )?;
 
         let source = fs::read(temp_file.path())?;
         let tree = parse_file(temp_file.path(), crate::SwiftLang)?;
         let calls: Vec<_> = get_calls(&tree).collect();
 
-        // Should find the Calculator() constructor call and calc.add(2, 3) method call
-        assert!(calls.len() == 2);
+        assert!(calls.len() == 3);
 
         // Find the method call 'calc.add(2, 3)'
-        let method_call = calls
-            .iter()
-            .find(|c| c.call_node.utf8_text(&source).unwrap().contains("add"))
-            .expect("Method call not found");
-
-        // Verify it's a call_expression
+        let method_call = calls.get(1).expect("Method call not found");
         assert_eq!(method_call.call_node.kind(), "call_expression");
-
         // The goto_definition_node should point to just the method name "add"
         assert_eq!(method_call.goto_definition_node.kind(), "simple_identifier");
         let def_text = method_call.goto_definition_node.utf8_text(&source)?;
         assert_eq!(def_text, "add");
+
+        // Find the method call `Foo<UInt8>.allocate(capacity: length)`
+        let method_call = calls.get(2).expect("Method call not found");
+        assert_eq!(method_call.call_node.kind(), "call_expression");
+        // The goto_definition_node should point to just the method name
+        // "allocate", but the Swift tree-sitter grammar doesn't parse the call
+        // correctly due to the generics. We might want to work around this in
+        // the future.
+        let def_text = method_call.goto_definition_node.utf8_text(&source)?;
+        assert_eq!(def_text, ".allocate(capacity: length)");
 
         Ok(())
     }
