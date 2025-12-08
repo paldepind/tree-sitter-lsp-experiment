@@ -40,7 +40,7 @@ fn point_to_position(point: tree_sitter::Point) -> Position {
 /// The LSP GotoDefinition response, which may be None if no definition is found
 pub fn goto_definition_for_node<L: crate::language::Language>(
     lsp_server: &mut LspServer<L>,
-    node: &Node,
+    node: Node,
     file_path: &Path,
 ) -> Result<Option<lsp_types::GotoDefinitionResponse>> {
     let start_time = std::time::Instant::now();
@@ -154,8 +154,6 @@ pub fn find_all_call_targets<L: Language>(
     lsp_server.send_notification::<Initialized>(InitializedParams {})?;
     tracing::info!("LSP server initialized");
 
-    // Initialize performance timer
-    let start_time = std::time::Instant::now();
     let mut total_calls = 0;
 
     // Process each file
@@ -218,7 +216,7 @@ pub fn find_all_call_targets<L: Language>(
                 goto_definition_node,
             } = call;
             // Query the LSP server for the definition
-            match goto_definition_for_node(&mut lsp_server, &goto_definition_node, file_path) {
+            match goto_definition_for_node(&mut lsp_server, goto_definition_node, file_path) {
                 Ok(Some(definition)) => {
                     // We need to convert the node to a 'static lifetime by storing the tree
                     // Since we can't easily do that here, we'll use unsafe to extend the lifetime
@@ -270,10 +268,9 @@ pub fn find_all_call_targets<L: Language>(
     }
 
     tracing::info!(
-        "Processed {} files and {} calls in {:.2?}",
+        "Processed {} files and {} calls",
         matching_files.len(),
         total_calls,
-        start_time.elapsed()
     );
 
     // Stop the LSP server
@@ -369,11 +366,8 @@ func main() {
         })?;
 
         // Request go-to-definition for the call node
-        let result = goto_definition_for_node(
-            &mut lsp_server,
-            &greet_call.goto_definition_node,
-            &file_path,
-        )?;
+        let result =
+            goto_definition_for_node(&mut lsp_server, greet_call.goto_definition_node, &file_path)?;
 
         // Verify the definition points to the correct location
         let response = result.expect("Should find definition for greet function call");

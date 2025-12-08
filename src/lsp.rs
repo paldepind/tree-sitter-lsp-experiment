@@ -222,7 +222,7 @@ impl<L: Language> LspServer<L> {
     ) -> Result<LspServer<L>> {
         // Check if the LSP server is available
         if !is_server_available(language) {
-            let instructions = get_installation_instructions(language.clone());
+            let instructions = get_installation_instructions(language);
             return Err(anyhow::anyhow!(
                 "LSP server for {} is not available. {}",
                 language,
