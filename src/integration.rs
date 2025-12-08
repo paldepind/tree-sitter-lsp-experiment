@@ -43,6 +43,7 @@ pub fn goto_definition_for_node<L: crate::language::Language>(
     node: &Node,
     file_path: &Path,
 ) -> Result<Option<lsp_types::GotoDefinitionResponse>> {
+    let start_time = std::time::Instant::now();
     // Get the starting position of the node
     let start = node.start_position();
 
@@ -62,7 +63,14 @@ pub fn goto_definition_for_node<L: crate::language::Language>(
     };
 
     // Send the request and get the response
-    lsp_server.request::<lsp_types::request::GotoDefinition>(params)
+    let result = lsp_server.request::<lsp_types::request::GotoDefinition>(params);
+    let elapsed = start_time.elapsed();
+    tracing::info!(
+        "LSP go-to-definition request took {:.2?} for node at {}",
+        elapsed,
+        display_node_location(file_path, node)
+    );
+    result
 }
 
 /// Finds all function calls in a project and retrieves their definitions from the LSP server
