@@ -5,14 +5,15 @@ use anyhow::Result;
 use lsp_types::notification::{
     DidCloseTextDocument, DidOpenTextDocument, Initialized, Notification,
 };
-use lsp_types::request::{Initialize, Request};
+use lsp_types::request::{DocumentSymbolRequest, Initialize, Request};
 use lsp_types::{
-    DidCloseTextDocumentParams, DidOpenTextDocumentParams, InitializeParams, InitializedParams,
-    TextDocumentIdentifier, TextDocumentItem, Uri, WorkspaceFolder,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DocumentSymbol, DocumentSymbolParams,
+    InitializeParams, InitializedParams, TextDocumentIdentifier, TextDocumentItem, Uri,
+    WorkspaceFolder,
 };
 use serde_json::{from_value, to_value};
 use std::io::{BufRead, BufReader, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
 use crate::language::Language;
@@ -54,6 +55,14 @@ fn is_server_command_available(command: &str) -> bool {
 
 pub fn uri_from_path(path: &std::path::Path) -> Result<Uri> {
     Ok(format!("file://{}", path.display()).parse()?)
+}
+
+pub fn text_document_identifier_from_path(
+    file_path: &std::path::Path,
+) -> Result<TextDocumentIdentifier> {
+    Ok(TextDocumentIdentifier {
+        uri: uri_from_path(file_path)?,
+    })
 }
 
 impl<L: Language> LspServer<L> {
@@ -345,6 +354,49 @@ impl<L: Language> LspServer<L> {
 
     pub fn start_and_init(language: L, working_dir: PathBuf) -> Result<LspServer<L>> {
         Self::start_and_init_with_config(language, working_dir, Default::default())
+    }
+
+    pub fn get_document_symbols(
+        &mut self,
+        file_path: &Path,
+    ) -> Result<(Vec<DocumentSymbol>, bool)> {
+        let file_uri = uri_from_path(file_path)?;
+        let response = self.request::<DocumentSymbolRequest>(DocumentSymbolParams {
+            text_document: TextDocumentIdentifier { uri: file_uri },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        });
+        match response {
+            Ok(Some(lsp_types::DocumentSymbolResponse::Nested(symbols))) => Ok((symbols, false)),
+            Ok(Some(lsp_types::DocumentSymbolResponse::Flat(symbols))) => {
+                // Convert flat symbols to nested format
+                Ok((
+                    symbols
+                        .into_iter()
+                        .map(|sym| DocumentSymbol {
+                            name: sym.name,
+                            detail: None,
+                            kind: sym.kind,
+                            tags: sym.tags,
+                            #[allow(deprecated)]
+                            deprecated: None,
+                            range: sym.location.range,
+                            selection_range: sym.location.range,
+                            children: None,
+                        })
+                        .collect(),
+                    true,
+                ))
+            }
+            Ok(None) => {
+                println!("No symbols found in this file");
+                Ok((vec![], false))
+            }
+            Err(e) => {
+                tracing::warn!("Failed to get symbols for {}: {}", file_path.display(), e);
+                anyhow::bail!("LSP request failed");
+            }
+        }
     }
 }
 
