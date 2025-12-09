@@ -2,10 +2,13 @@
 //! as convenience functions for communicating with it.
 
 use anyhow::Result;
-use lsp_types::notification::{DidCloseTextDocument, DidOpenTextDocument, Notification};
-use lsp_types::request::Request;
+use lsp_types::notification::{
+    DidCloseTextDocument, DidOpenTextDocument, Initialized, Notification,
+};
+use lsp_types::request::{Initialize, Request};
 use lsp_types::{
-    DidCloseTextDocumentParams, DidOpenTextDocumentParams, TextDocumentIdentifier, TextDocumentItem,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, InitializeParams, InitializedParams,
+    TextDocumentIdentifier, TextDocumentItem, Uri, WorkspaceFolder,
 };
 use serde_json::{from_value, to_value};
 use std::io::{BufRead, BufReader, Write};
@@ -42,34 +45,15 @@ fn request_string<T: serde::Serialize>(request: &T) -> Result<String> {
     ))
 }
 
-/// Returns installation instructions for the LSP server for the given language
-fn get_installation_instructions(language: impl Language) -> &'static str {
-    match language.cli_name() {
-        "rust" => "Install rust-analyzer: https://rust-analyzer.github.io/manual.html#installation",
-        "python" => "Install Python LSP Server: pip install python-lsp-server",
-        "typescript" => {
-            "Install TypeScript Language Server: npm install -g typescript-language-server typescript"
-        }
-        "go" => "Install gopls: go install golang.org/x/tools/gopls@latest",
-        "swift" => {
-            "Install sourcekit-lsp: Install Xcode or Swift toolchain from https://swift.org/download/"
-        }
-        _ => "LSP server not configured for this language",
-    }
+/// Checks if the required LSP server is available for the given language
+fn is_server_command_available(command: &str) -> bool {
+    // Try to execute the command with --version or --help to check availability
+    Command::new(command).arg("--version").output().is_ok()
+        || Command::new(command).arg("--help").output().is_ok()
 }
 
-/// Checks if the required LSP server is available for the given language
-fn is_server_available(language: impl Language) -> bool {
-    let (command, _) = language.lsp_server_command();
-
-    // Try to execute the command with --version or --help to check availability
-    match Command::new(command).arg("--version").output() {
-        Ok(_) => true,
-        Err(_) => {
-            // Try with --help as a fallback
-            Command::new(command).arg("--help").output().is_ok()
-        }
-    }
+pub fn uri_from_path(path: &std::path::Path) -> Result<Uri> {
+    Ok(format!("file://{}", path.display()).parse()?)
 }
 
 impl<L: Language> LspServer<L> {
@@ -125,7 +109,7 @@ impl<L: Language> LspServer<L> {
     pub fn open_file(&mut self, file_path: &std::path::Path, file_content: &str) -> Result<()> {
         self.send_notification::<DidOpenTextDocument>(DidOpenTextDocumentParams {
             text_document: TextDocumentItem {
-                uri: format!("file://{}", file_path.display()).parse()?,
+                uri: uri_from_path(file_path)?,
                 language_id: self.language.to_string().to_lowercase(),
                 version: 1,
                 text: file_content.to_string(),
@@ -140,7 +124,7 @@ impl<L: Language> LspServer<L> {
     pub fn close_file(&mut self, file_path: &std::path::Path) -> Result<()> {
         self.send_notification::<DidCloseTextDocument>(DidCloseTextDocumentParams {
             text_document: TextDocumentIdentifier {
-                uri: format!("file://{}", file_path.display()).parse()?,
+                uri: uri_from_path(file_path)?,
             },
         })
         .map_err(|err| {
@@ -255,22 +239,18 @@ impl<L: Language> LspServer<L> {
         config: LspServerConfig,
     ) -> Result<LspServer<L>> {
         // Check if the LSP server is available
-        if !is_server_available(language) {
-            let instructions = get_installation_instructions(language);
+        let (command, args) = language.lsp_server_command();
+        if !is_server_command_available(command) {
             return Err(anyhow::anyhow!(
-                "LSP server for {} is not available. {}",
+                "LSP server for {} is not available. Please make sure the it is installed.",
                 language,
-                instructions
             ));
         }
 
         tracing::info!(
-            "Starting LSP server for {} in {}",
-            language,
+            "Starting LSP server for {language} in {}",
             working_dir.display()
         );
-
-        let (command, args) = language.lsp_server_command();
 
         let mut cmd = Command::new(command);
         cmd.current_dir(&working_dir)
@@ -338,15 +318,11 @@ impl<L: Language> LspServer<L> {
         working_dir: PathBuf,
         config: LspServerConfig,
     ) -> Result<LspServer<L>> {
-        use lsp_types::notification::Initialized;
-        use lsp_types::request::Initialize;
-        use lsp_types::{InitializeParams, InitializedParams, WorkspaceFolder};
-
         let mut server = Self::start(language, working_dir.clone(), config)?;
 
         // Initialize the LSP server
         tracing::info!("Initializing LSP server...");
-        let workspace_uri = format!("file://{}", working_dir.display()).parse()?;
+        let workspace_uri = uri_from_path(&working_dir)?;
         let initialize_params = InitializeParams {
             process_id: Some(std::process::id()),
             workspace_folders: Some(vec![WorkspaceFolder {

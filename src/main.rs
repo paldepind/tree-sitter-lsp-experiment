@@ -7,7 +7,7 @@ use std::env;
 use std::path::PathBuf;
 use tree_sitter_lsp_experiment::{
     FileSearchConfig, GoLang, Language, LspServer, LspServerConfig, PythonLang, RustLang,
-    SwiftLang, TypeScriptLang,
+    SwiftLang, TypeScriptLang, lsp::uri_from_path,
 };
 
 fn start<L: Language + Copy>(language: L, project_path: PathBuf) -> Result<()> {
@@ -38,12 +38,7 @@ fn start<L: Language + Copy>(language: L, project_path: PathBuf) -> Result<()> {
         lsp_server.working_dir.display()
     );
 
-    // Request definition for ScrollOffset.swift, line 31, character 17
-    // let file_path = project_path.join("SignalUI/Appearance/SwiftUI/ScrollOffset.swift");
     let file_path = project_path.join("src/main.rs");
-    let file_uri = format!("file://{}", file_path.display());
-
-    // Read the file content
     let file_content = std::fs::read_to_string(&file_path)?;
 
     // Send textDocument/didOpen notification
@@ -63,7 +58,7 @@ fn start<L: Language + Copy>(language: L, project_path: PathBuf) -> Result<()> {
     let definition_params = GotoDefinitionParams {
         text_document_position_params: TextDocumentPositionParams {
             text_document: TextDocumentIdentifier {
-                uri: file_uri.parse()?,
+                uri: uri_from_path(&file_path)?,
             },
             // Line 7 (0-indexed) is: "let result = add(x, y);"
             // Character 17 is on the 'a' in 'add'

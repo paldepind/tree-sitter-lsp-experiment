@@ -1,10 +1,12 @@
 //! Programming language definitions and configurations.
 
+use std::fmt::{Debug, Display};
+
 use anyhow::Result;
 use regex::Regex;
 
 /// Trait representing a programming language for Tree Sitter parsing and LSP integration
-pub trait Language: std::fmt::Debug + std::fmt::Display + Copy {
+pub trait Language: Debug + Display + Copy {
     /// Returns the lowercase name used for command line arguments
     fn cli_name(&self) -> &'static str;
 

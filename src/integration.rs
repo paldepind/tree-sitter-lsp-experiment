@@ -9,7 +9,7 @@ use tree_sitter::Node;
 
 use crate::call_node::CallNode;
 use crate::call_with_target::CallWithTarget;
-use crate::lsp::LspServer;
+use crate::lsp::{LspServer, uri_from_path};
 use crate::parser::{display_node_location, get_calls, parse_file_content};
 use crate::{Language, LspServerConfig};
 
@@ -50,7 +50,7 @@ pub fn goto_definition_for_node<L: crate::language::Language>(
     let params = GotoDefinitionParams {
         text_document_position_params: TextDocumentPositionParams {
             text_document: TextDocumentIdentifier {
-                uri: format!("file://{}", file_path.display()).parse()?,
+                uri: uri_from_path(file_path)?,
             },
             position: point_to_position(node.start_position()),
         },
@@ -291,11 +291,10 @@ func main() {
         )?;
 
         // Initialize the LSP server
-        let workspace_uri = format!("file://{}", temp_dir.path().display()).parse()?;
         let initialize_params = InitializeParams {
             process_id: Some(std::process::id()),
             workspace_folders: Some(vec![lsp_types::WorkspaceFolder {
-                uri: workspace_uri,
+                uri: uri_from_path(temp_dir.path())?,
                 name: "test".to_string(),
             }]),
             ..Default::default()
