@@ -2,9 +2,11 @@
 //! as convenience functions for communicating with it.
 
 use anyhow::Result;
-use lsp_types::notification::{DidOpenTextDocument, Notification};
+use lsp_types::notification::{DidCloseTextDocument, DidOpenTextDocument, Notification};
 use lsp_types::request::Request;
-use lsp_types::{DidOpenTextDocumentParams, TextDocumentItem};
+use lsp_types::{
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, TextDocumentIdentifier, TextDocumentItem,
+};
 use serde_json::{from_value, to_value};
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
@@ -136,18 +138,15 @@ impl<L: Language> LspServer<L> {
     /// This sends a `textDocument/didClose` notification to inform the LSP server
     /// that a file is no longer open.
     pub fn close_file(&mut self, file_path: &std::path::Path) -> Result<()> {
-        use lsp_types::{
-            DidCloseTextDocumentParams, TextDocumentIdentifier, notification::DidCloseTextDocument,
-        };
-
-        let file_uri = format!("file://{}", file_path.display());
-        let params = DidCloseTextDocumentParams {
+        self.send_notification::<DidCloseTextDocument>(DidCloseTextDocumentParams {
             text_document: TextDocumentIdentifier {
-                uri: file_uri.parse()?,
+                uri: format!("file://{}", file_path.display()).parse()?,
             },
-        };
-
-        self.send_notification::<DidCloseTextDocument>(params)
+        })
+        .map_err(|err| {
+            tracing::warn!("Failed to close document {}: {}", file_path.display(), err);
+            err
+        })
     }
 
     /// Reads a response from the LSP server

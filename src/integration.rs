@@ -216,9 +216,7 @@ pub fn find_all_call_targets<L: Language>(
         }
 
         // Close the document in the LSP server
-        if let Err(e) = lsp_server.close_file(file_path) {
-            tracing::warn!("Failed to close document {}: {}", file_path.display(), e);
-        }
+        lsp_server.close_file(file_path)?;
     }
 
     tracing::info!(
