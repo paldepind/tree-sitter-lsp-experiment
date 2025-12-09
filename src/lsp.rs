@@ -313,7 +313,7 @@ impl<L: Language> LspServer<L> {
     ///
     /// This is a convenience method that combines `start()` with the initialization sequence
     /// required by the LSP protocol (sending Initialize request and Initialized notification).
-    pub fn start_and_init(
+    pub fn start_and_init_with_config(
         language: L,
         working_dir: PathBuf,
         config: LspServerConfig,
@@ -341,6 +341,10 @@ impl<L: Language> LspServer<L> {
         tracing::info!("LSP server initialized");
 
         Ok(server)
+    }
+
+    pub fn start_and_init(language: L, working_dir: PathBuf) -> Result<LspServer<L>> {
+        Self::start_and_init_with_config(language, working_dir, Default::default())
     }
 }
 

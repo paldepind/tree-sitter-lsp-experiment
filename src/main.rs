@@ -6,8 +6,8 @@ use lsp_types::{
 use std::env;
 use std::path::PathBuf;
 use tree_sitter_lsp_experiment::{
-    FileSearchConfig, GoLang, Language, LspServer, LspServerConfig, PythonLang, RustLang,
-    SwiftLang, TypeScriptLang, lsp::uri_from_path,
+    FileSearchConfig, GoLang, Language, LspServer, PythonLang, RustLang, SwiftLang, TypeScriptLang,
+    lsp::uri_from_path,
 };
 
 fn start<L: Language + Copy>(language: L, project_path: PathBuf) -> Result<()> {
@@ -30,8 +30,7 @@ fn start<L: Language + Copy>(language: L, project_path: PathBuf) -> Result<()> {
 
     // Start and initialize LSP server for the language
     tracing::info!("Starting LSP server for {}...", language);
-    let mut lsp_server =
-        LspServer::<L>::start_and_init(language, project_path.clone(), LspServerConfig::default())?;
+    let mut lsp_server = LspServer::<L>::start_and_init(language, project_path.clone())?;
 
     tracing::info!(
         "LSP server started successfully in: {}",

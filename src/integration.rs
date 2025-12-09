@@ -118,11 +118,7 @@ pub fn find_all_call_targets<L: Language>(
 
     // Start and initialize LSP server
     tracing::info!("Starting LSP server for {}...", language);
-    let mut lsp_server = LspServer::start_and_init(
-        language,
-        project_path.to_path_buf(),
-        LspServerConfig::default(),
-    )?;
+    let mut lsp_server = LspServer::start_and_init(language, project_path.to_path_buf())?;
 
     let mut total_calls = 0;
 
