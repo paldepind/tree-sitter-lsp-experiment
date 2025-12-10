@@ -7,11 +7,11 @@ use lsp_types::{
 use std::path::Path;
 use tree_sitter::Node;
 
+use crate::Language;
 use crate::call_node::CallNode;
 use crate::call_with_target::CallWithTarget;
 use crate::lsp::{LspServer, uri_from_path};
 use crate::parser::{display_node_location, get_calls, parse_file_content};
-use crate::{Language, LspServerConfig};
 
 /// Results from analyzing calls in a project
 #[derive(Debug, Clone)]
