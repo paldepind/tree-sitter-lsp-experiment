@@ -5,6 +5,7 @@ pub mod cli;
 pub mod file_search;
 pub mod integration;
 pub mod language;
+pub mod location;
 pub mod lsp;
 pub mod parser;
 
