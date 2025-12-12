@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use lsp_types::Range;
 
 pub fn highlight_range(file_lines: &[&str], range: Range) {

@@ -16,8 +16,8 @@ pub struct FileSearchConfig {
     pub max_depth: Option<usize>,
     /// Optional glob pattern to include only matching files (None = no filtering)
     pub include_glob: Option<glob::Pattern>,
-    /// Optional glob pattern to exclude matching files (None = no filtering)
-    pub exclude_glob: Option<glob::Pattern>,
+    /// Glob patterns to exclude matching files (empty = no filtering)
+    pub exclude_globs: Vec<glob::Pattern>,
 }
 
 impl Default for FileSearchConfig {
@@ -37,7 +37,7 @@ impl Default for FileSearchConfig {
             ],
             max_depth: None,
             include_glob: None,
-            exclude_glob: None,
+            exclude_globs: Vec::new(),
         }
     }
 }
@@ -56,7 +56,7 @@ impl FileSearchConfig {
             dir_path,
             &file_regex,
             &self.include_glob,
-            &self.exclude_glob,
+            &self.exclude_globs,
             &mut matching_files,
             0,
         )?;
@@ -78,7 +78,7 @@ impl FileSearchConfig {
         dir: &Path,
         regex: &Regex,
         include_glob: &Option<glob::Pattern>,
-        exclude_glob: &Option<glob::Pattern>,
+        exclude_globs: &[glob::Pattern],
         results: &mut Vec<PathBuf>,
         current_depth: usize,
     ) -> Result<()> {
@@ -108,7 +108,7 @@ impl FileSearchConfig {
                     &path,
                     regex,
                     include_glob,
-                    exclude_glob,
+                    exclude_globs,
                     results,
                     current_depth + 1,
                 )?;
@@ -118,10 +118,11 @@ impl FileSearchConfig {
             {
                 let path_str = path.to_str();
 
-                // Check exclude pattern first - if it matches, skip this file
-                if let Some(exclude_pattern) = exclude_glob
-                    && let Some(path_str) = path_str
-                    && exclude_pattern.matches(path_str)
+                // Check exclude patterns first - if any match, skip this file
+                if let Some(path_str) = path_str
+                    && exclude_globs
+                        .iter()
+                        .any(|pattern| pattern.matches(path_str))
                 {
                     continue;
                 }

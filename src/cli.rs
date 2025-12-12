@@ -21,9 +21,9 @@ pub struct Args {
     #[arg(long, value_name = "PATTERN")]
     pub include: Option<String>,
 
-    /// Glob pattern to exclude specific files (e.g., '**/*test*')
+    /// Glob patterns to exclude specific files (e.g., '**/*test*'). Can be specified multiple times.
     #[arg(long, value_name = "PATTERN")]
-    pub exclude: Option<String>,
+    pub exclude: Vec<String>,
 }
 
 impl Args {
@@ -70,12 +70,16 @@ impl Args {
             println!("Using include pattern: {}", pattern);
         }
 
-        if let Some(pattern) = &self.exclude {
-            let glob_pattern = glob::Pattern::new(pattern).map_err(|e| {
-                anyhow::anyhow!("Invalid exclude glob pattern '{}': {}", pattern, e)
-            })?;
-            config.exclude_glob = Some(glob_pattern);
-            println!("Using exclude pattern: {}", pattern);
+        if !self.exclude.is_empty() {
+            let mut exclude_patterns = Vec::new();
+            for pattern in &self.exclude {
+                let glob_pattern = glob::Pattern::new(pattern).map_err(|e| {
+                    anyhow::anyhow!("Invalid exclude glob pattern '{}': {}", pattern, e)
+                })?;
+                exclude_patterns.push(glob_pattern);
+                println!("Using exclude pattern: {}", pattern);
+            }
+            config.exclude_globs = exclude_patterns;
         }
 
         Ok(config)

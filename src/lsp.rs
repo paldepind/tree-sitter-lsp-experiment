@@ -332,6 +332,26 @@ impl<L: Language> LspServer<L> {
         // Initialize the LSP server
         tracing::info!("Initializing LSP server...");
         let workspace_uri = uri_from_path(&working_dir)?;
+
+        // Set up client capabilities to enable all features we want to use
+        use lsp_types::{
+            CallHierarchyClientCapabilities, ClientCapabilities, TextDocumentClientCapabilities,
+            WorkspaceClientCapabilities,
+        };
+
+        let capabilities = ClientCapabilities {
+            text_document: Some(TextDocumentClientCapabilities {
+                call_hierarchy: Some(CallHierarchyClientCapabilities {
+                    dynamic_registration: Some(false),
+                }),
+                ..Default::default()
+            }),
+            workspace: Some(WorkspaceClientCapabilities {
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
         let initialize_params = InitializeParams {
             process_id: Some(std::process::id()),
             workspace_folders: Some(vec![WorkspaceFolder {
@@ -342,6 +362,7 @@ impl<L: Language> LspServer<L> {
                     .unwrap_or("workspace")
                     .to_string(),
             }]),
+            capabilities,
             ..Default::default()
         };
 
@@ -370,19 +391,34 @@ impl<L: Language> LspServer<L> {
             Ok(Some(lsp_types::DocumentSymbolResponse::Nested(symbols))) => Ok((symbols, false)),
             Ok(Some(lsp_types::DocumentSymbolResponse::Flat(symbols))) => {
                 // Convert flat symbols to nested format
+                // For flat symbols, we need to estimate the selection_range (identifier location)
+                // since SymbolInformation doesn't provide it separately
                 Ok((
                     symbols
                         .into_iter()
-                        .map(|sym| DocumentSymbol {
-                            name: sym.name,
-                            detail: None,
-                            kind: sym.kind,
-                            tags: sym.tags,
-                            #[allow(deprecated)]
-                            deprecated: None,
-                            range: sym.location.range,
-                            selection_range: sym.location.range,
-                            children: None,
+                        .map(|sym| {
+                            let range = sym.location.range;
+                            // For flat symbols, estimate the identifier position
+                            // Most LSP servers put the range start at or near the identifier
+                            let selection_range = lsp_types::Range {
+                                start: range.start,
+                                end: lsp_types::Position {
+                                    line: range.start.line,
+                                    character: range.start.character + sym.name.len() as u32,
+                                },
+                            };
+
+                            DocumentSymbol {
+                                name: sym.name,
+                                detail: None,
+                                kind: sym.kind,
+                                tags: sym.tags,
+                                #[allow(deprecated)]
+                                deprecated: None,
+                                range,
+                                selection_range,
+                                children: None,
+                            }
                         })
                         .collect(),
                     true,

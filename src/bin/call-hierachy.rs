@@ -9,33 +9,13 @@ use lsp_types::{
     request::{CallHierarchyIncomingCalls, CallHierarchyOutgoingCalls, CallHierarchyPrepare},
 };
 use lsp_types::{DocumentSymbol, SymbolKind};
-use std::{os::unix::thread, path::Path};
+use std::{os::unix::thread, path::Path, time::Duration};
 use tree_sitter_lsp_experiment::lsp::text_document_identifier_from_path;
 use tree_sitter_lsp_experiment::{
     Args, FileSearchConfig, GoLang, Language, LspServer, PythonLang, RustLang, SwiftLang,
     TypeScriptLang,
 };
 use tree_sitter_lsp_experiment::{location::highlight_range, lsp};
-
-struct FileResult {
-    file_name: String,
-    resolved_symbols: Vec<SymbolResult>,
-}
-
-struct SymbolResult {
-    name: String,
-    range: Range,
-    selection_range: Range,
-    outgoing_calls: Vec<OutgoingCallResult>,
-}
-
-struct OutgoingCallResult {
-    to_name: String,
-    to_kind: SymbolKind,
-    to_range: Range,
-    to_selection_range: Range,
-    from_ranges: Range,
-}
 
 fn mk_outgoing_call_result(call: &CallHierarchyOutgoingCall) -> Option<OutgoingCallResult> {
     Some(OutgoingCallResult {
@@ -101,10 +81,25 @@ fn prepare_call_hierarchy(
             std::thread::sleep(std::time::Duration::from_millis(100u64 * retries));
         }
         let before_prepare = std::time::Instant::now();
+
+        // For Go with flat symbols, gopls returns the range starting at the beginning of the line
+        // (character 0), but we need to point to the actual function name identifier
+        // Use the middle of the selection_range to ensure we're on the identifier
+        let position = if lsp_server.language.cli_name() == "go" {
+            let sel_start = symbol.selection_range.start;
+            let sel_end = symbol.selection_range.end;
+            lsp_types::Position {
+                line: sel_start.line,
+                character: (sel_start.character + sel_end.character) / 2,
+            }
+        } else {
+            symbol.selection_range.start
+        };
+
         let prepare_params = CallHierarchyPrepareParams {
             text_document_position_params: TextDocumentPositionParams {
                 text_document: text_document_identifier_from_path(absolute_path)?,
-                position: symbol.selection_range.start,
+                position,
             },
             work_done_progress_params: Default::default(),
         };
@@ -153,9 +148,11 @@ fn extract_call_hierachy_for_files<L: Language>(
     tracing::info!("Starting LSP server for {}...", language);
     let mut lsp_server = LspServer::start_and_init(language, project_path.to_path_buf())?;
 
+    let mut durations = Vec::<(&str, Duration)>::new();
+
     // NOTE: It seems that for some LSP servers, giving them a bit of time to
     // start makes it possible for them to resolve more call hierarchy requests.
-    std::thread::sleep(std::time::Duration::from_millis(5000));
+    std::thread::sleep(std::time::Duration::from_millis(1000));
 
     let start_time = std::time::Instant::now();
     // Process each file
@@ -209,11 +206,14 @@ fn extract_call_hierachy_for_files<L: Language>(
         // Request document symbols
         let before_symbols = std::time::Instant::now();
         let (symbols, is_flat) = lsp_server.get_document_symbols(&absolute_path)?;
+        let symbols_elapsed = before_symbols.elapsed();
+        durations.push((file_path.to_str().unwrap_or(""), symbols_elapsed));
+
         println!(
             "Found {} symbols ({}) in {:.2?}",
             symbols.len(),
             if is_flat { "flat" } else { "nested" },
-            before_symbols.elapsed()
+            symbols_elapsed
         );
 
         let mut symbols_with_calls = Vec::new();
@@ -225,7 +225,6 @@ fn extract_call_hierachy_for_files<L: Language>(
         );
         total_symbols += symbols_with_calls.len();
 
-        std::thread::sleep(std::time::Duration::from_millis(10000));
         // Get call hierarchy information for each callable symbol
         for (i, symbol) in symbols_with_calls.iter().enumerate() {
             println!(
@@ -375,14 +374,28 @@ fn extract_call_hierachy_for_files<L: Language>(
 
     let elapsed = start_time.elapsed();
     let ops_per_sec = (total_calls + total_incoming_calls) as f64 / elapsed.as_secs_f64();
+
     println!(
-        "Summary: {} calls with definitions and {} incoming calls found in {:.2?}, {:.2} ops/sec",
+        "Summary: {} calls with definitions and {} incoming calls found in {:.2?}, {:.2} calls/sec",
         total_calls, total_incoming_calls, elapsed, ops_per_sec
+    );
+    println!(
+        "Symbols processed : {} {:.2} symbols/sec",
+        total_symbols,
+        total_symbols as f64 / elapsed.as_secs_f64()
     );
     println!(
         "Calls per request : {:.3}",
         total_calls as f64 / total_symbols as f64
     );
+    durations.sort_by_key(|t| t.1);
+    let total_durations: Duration = durations.iter().map(|(_, duration)| duration).sum();
+    print!(
+        "Total durations: {:.2?} n={}",
+        total_durations,
+        durations.len()
+    );
+    print!("All durations: {:?}", durations);
 
     Ok(())
 }
