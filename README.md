@@ -1,5 +1,7 @@
 # tree-sitter-lsp-experiment
 
+Experiment to evaluate and benchmark LSP server implementations.
+
 ## Supported Languages
 
 - Rust
@@ -46,26 +48,13 @@ Make sure `$GOPATH/bin` is in your PATH.
 
 ### Swift - `sourcekit-lsp`
 
-**macOS:**
-
-[sourcekit-lsp](https://github.com/swiftlang/sourcekit-lsp) comes bundled with
-Xcode or the Swift toolchain.
-
-**Linux:**
-
-Download and install the Swift toolchain from https://swift.org/download/
+On macOS [sourcekit-lsp](https://github.com/swiftlang/sourcekit-lsp) comes
+bundled with Xcode or the Swift toolchain.
 
 ## Usage
 
 ```sh
-# Run on a project directory with a specific language
-tree-sitter-lsp-experiment <project_path> --language <language>
-
-# Example: Analyze a Rust project
-tree-sitter-lsp-experiment ./my-rust-project --language rust
-
-# Example: Analyze a Python project
-tree-sitter-lsp-experiment ./my-python-project --language python
+cargo run --bin call-hierachy -- --help
 ```
 
 ### Run with Debug Logging
