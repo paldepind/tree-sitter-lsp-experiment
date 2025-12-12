@@ -18,7 +18,10 @@ pub fn highlight_range(file_lines: &[&str], range: Range) {
             line_len - start_character
         };
         let mut call_underline = String::new();
-        call_underline.push_str(" ".repeat(start_character - leading_spaces).as_str());
+        call_underline.push_str(
+            " ".repeat(start_character.saturating_sub(leading_spaces))
+                .as_str(),
+        );
         call_underline.push_str("^".repeat(underline_width).as_str());
         print!("    {}", call_underline);
     }
