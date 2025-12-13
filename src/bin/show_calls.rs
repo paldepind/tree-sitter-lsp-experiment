@@ -29,7 +29,7 @@ fn process_file<L: Language>(file_path: &Path, language: L) -> Result<()> {
     let tree = tree_sitter_lsp_experiment::parser::parse_file(file_path, language)?;
 
     // Get all calls
-    let calls: Vec<_> = tree_sitter_lsp_experiment::parser::get_calls(&tree).collect();
+    let calls: Vec<_> = tree_sitter_lsp_experiment::parser::get_calls(&tree, language).collect();
 
     println!("Found {} call(s):\n", calls.len());
 

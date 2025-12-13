@@ -159,7 +159,7 @@ pub fn find_all_call_targets<L: Language>(
         // std::thread::sleep(std::time::Duration::from_secs(5));
 
         // Find all calls in the file
-        let calls: Vec<_> = get_calls(&tree).collect();
+        let calls: Vec<_> = get_calls(&tree, language).collect();
         tracing::debug!("Found {} calls in {}", calls.len(), file_path.display());
         total_calls += calls.len();
 
@@ -269,7 +269,7 @@ func main() {
         let tree = parse_file(&file_path, crate::SwiftLang)?;
 
         // Find the greet() call (not the print() call)
-        let greet_call = get_calls(&tree)
+        let greet_call = get_calls(&tree, crate::SwiftLang)
             .find(|node| {
                 node.call_node
                     .utf8_text(swift_code.as_bytes())

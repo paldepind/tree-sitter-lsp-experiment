@@ -92,128 +92,59 @@ pub fn display_node_location<'a>(file_path: &'a Path, node: Node<'a>) -> impl 'a
 ///
 /// # Arguments
 /// * `tree` - The parsed syntax tree to search
+/// * `language` - The programming language of the tree
 ///
 /// # Returns
 /// An iterator that yields `CallNode` for each call found in the tree
 ///
 /// # Example
 /// ```ignore
-/// let tree = parse_file(path, &RustLang)?;
-/// for call in get_calls(&tree) {
+/// let tree = parse_file(path, RustLang)?;
+/// for call in get_calls(&tree, RustLang) {
 ///     println!("Found call: {:?}", call.call_node.kind());
 /// }
 /// ```
-pub fn get_calls(tree: &Tree) -> impl Iterator<Item = CallNode<'_>> {
-    // Node kinds that represent calls in different languages
-    const CALL_NODE_KINDS: &[&str] = &[
-        // Rust
-        "call_expression",
-        "macro_invocation",
-        // Python
-        "call",
-        // TypeScript/JavaScript
-        "call_expression",
-        "new_expression",
-        // Go
-        "call_expression",
-        // Swift
-        "call_expression",
-        "function_call_expression",
-    ];
-
+pub fn get_calls(tree: &Tree, language: impl Language) -> impl Iterator<Item = CallNode<'_>> {
     CallIterator {
         cursor: tree.walk(),
-        call_kinds: CALL_NODE_KINDS,
+        language,
         visited_root: false,
     }
 }
 
-/// Finds the appropriate node for goto definition within a call node
-/// For method calls, this returns the method name node; otherwise returns the call node itself
-fn find_goto_definition_node<'a>(call_node: Node<'a>) -> Node<'a> {
-    // For Swift method calls, find the method name
-    if call_node.kind() == "call_expression" {
-        // Look for a child that represents the method/function being called
-        let mut cursor = call_node.walk();
-
-        // Check if this is a method call (has a navigation expression like obj.method)
-        for child in call_node.children(&mut cursor) {
-            // In Swift, method calls have a structure like:
-            // call_expression
-            //   navigation_expression (e.g., "calc.add")
-            //     simple_identifier ("calc")
-            //     navigation_suffix
-            //       simple_identifier ("add") <- This is what we want
-            // (call_expression ; [5, 17] - [5, 31]
-            //   (navigation_expression ; [5, 17] - [5, 25]
-            //     target: (simple_identifier) ; [5, 17] - [5, 21]
-            //     suffix: (navigation_suffix ; [5, 21] - [5, 25]
-            //       suffix: **(simple_identifier)**)) ; [5, 22] - [5, 25]
-            //   (call_suffix ; [5, 25] - [5, 31]
-            //     (value_arguments ; [5, 25] - [5, 31]
-            //       (value_argument ; [5, 26] - [5, 27]
-            //         value: (integer_literal)) ; [5, 26] - [5, 27]
-            //       (value_argument ; [5, 29] - [5, 30]
-            //         value: (integer_literal)))))
-            if child.kind() == "navigation_expression" {
-                // Find the navigation suffix which contains the method name
-                let mut nav_cursor = child.walk();
-                for nav_child in child.children(&mut nav_cursor) {
-                    if nav_child.kind() == "navigation_suffix" {
-                        // Find the identifier within the suffix
-                        let mut suffix_cursor = nav_child.walk();
-                        for suffix_child in nav_child.children(&mut suffix_cursor) {
-                            if suffix_child.kind() == "simple_identifier" {
-                                return suffix_child;
-                            }
-                        }
-                    }
-                }
-            }
-            // For simple function calls (not method calls), look for the function name directly
-            else if child.kind() == "simple_identifier" || child.kind() == "identifier" {
-                return child;
-            }
-        }
-    }
-
-    // Default: return the call node itself
-    call_node
-}
-
 /// Iterator that traverses a Tree-sitter tree and yields call nodes
-struct CallIterator<'a> {
+struct CallIterator<'a, L: Language> {
     cursor: TreeCursor<'a>,
-    call_kinds: &'a [&'a str],
+    language: L,
     visited_root: bool,
 }
 
-impl<'a> Iterator for CallIterator<'a> {
+impl<'a, L: Language> Iterator for CallIterator<'a, L> {
     type Item = CallNode<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let node = self.cursor.node();
 
-            // Check if current node is a call
-            if self.visited_root && self.call_kinds.contains(&node.kind()) {
-                // Find the appropriate node for goto definition
-                let goto_definition_node = find_goto_definition_node(node);
-                let call_node = CallNode {
-                    call_node: node,
-                    goto_definition_node,
-                };
+            // Check if current node is a call using the language-specific method
+            if self.visited_root {
+                if let Some(goto_definition_node) = self.language.find_call(node) {
+                    let call_node = CallNode {
+                        call_node: node,
+                        goto_definition_node,
+                    };
 
-                // Move to next node for the next iteration
-                if !self.cursor.goto_first_child() {
-                    while !self.cursor.goto_next_sibling() {
-                        if !self.cursor.goto_parent() {
-                            return Some(call_node);
+                    // Move to next node for the next iteration
+                    if !self.cursor.goto_first_child() {
+                        while !self.cursor.goto_next_sibling() {
+                            if !self.cursor.goto_parent() {
+                                return Some(call_node);
+                            }
                         }
                     }
-                }
 
-                return Some(call_node);
+                    return Some(call_node);
+                }
             }
 
             self.visited_root = true;
@@ -363,7 +294,7 @@ mod tests {
 
         let source = fs::read(temp_file.path())?;
         let tree = parse_file(temp_file.path(), crate::RustLang)?;
-        let calls: Vec<_> = get_calls(&tree).collect();
+        let calls: Vec<_> = get_calls(&tree, crate::RustLang).collect();
 
         // Should find: println! (macro), calculate (call), foo (call)
         assert_eq!(calls.len(), 3);
@@ -391,7 +322,7 @@ mod tests {
 
         let source = fs::read(temp_file.path())?;
         let tree = parse_file(temp_file.path(), crate::PythonLang)?;
-        let calls: Vec<_> = get_calls(&tree).collect();
+        let calls: Vec<_> = get_calls(&tree, crate::PythonLang).collect();
 
         // Should find: print, calculate, foo in that order
         assert_eq!(calls.len(), 3);
@@ -419,7 +350,7 @@ mod tests {
 
         let source = fs::read(temp_file.path())?;
         let tree = parse_file(temp_file.path(), crate::TypeScriptLang)?;
-        let calls: Vec<_> = get_calls(&tree).collect();
+        let calls: Vec<_> = get_calls(&tree, crate::TypeScriptLang).collect();
 
         // Should find: console.log, calculate, new MyClass in that order
         assert_eq!(calls.len(), 3);
@@ -453,7 +384,7 @@ mod tests {
 
         let source = fs::read(temp_file.path())?;
         let tree = parse_file(temp_file.path(), crate::GoLang)?;
-        let calls: Vec<_> = get_calls(&tree).collect();
+        let calls: Vec<_> = get_calls(&tree, crate::GoLang).collect();
 
         // Should find: println, calculate in that order
         assert_eq!(calls.len(), 2);
@@ -477,7 +408,7 @@ mod tests {
 
         let source = fs::read(temp_file.path())?;
         let tree = parse_file(temp_file.path(), crate::SwiftLang)?;
-        let calls: Vec<_> = get_calls(&tree).collect();
+        let calls: Vec<_> = get_calls(&tree, crate::SwiftLang).collect();
 
         // Should find: print, calculate in that order
         assert_eq!(calls.len(), 2);
@@ -514,7 +445,7 @@ mod tests {
 
         let source = fs::read(temp_file.path())?;
         let tree = parse_file(temp_file.path(), crate::SwiftLang)?;
-        let calls: Vec<_> = get_calls(&tree).collect();
+        let calls: Vec<_> = get_calls(&tree, crate::SwiftLang).collect();
 
         assert!(calls.len() == 3);
 
