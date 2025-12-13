@@ -43,6 +43,11 @@ impl Language for PythonLang {
         // For Python, return the call node itself as goto definition target
         Some(node)
     }
+
+    fn find_function_declaration<'a>(&self, _node: Node<'a>) -> Option<Node<'a>> {
+        // Not implemented for Python
+        None
+    }
 }
 
 impl std::fmt::Display for PythonLang {

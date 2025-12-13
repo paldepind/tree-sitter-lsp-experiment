@@ -43,6 +43,11 @@ impl Language for TypeScriptLang {
         // For TypeScript, return the call node itself as goto definition target
         Some(node)
     }
+
+    fn find_function_declaration<'a>(&self, _node: Node<'a>) -> Option<Node<'a>> {
+        // Not implemented for TypeScript
+        None
+    }
 }
 
 impl std::fmt::Display for TypeScriptLang {

@@ -34,6 +34,10 @@ pub trait Language: Debug + Display + Copy {
     /// Returns None if the node is not a call node for this language
     fn find_call<'a>(&self, node: Node<'a>) -> Option<Node<'a>>;
 
+    /// Finds the identifier node of a function or method declaration
+    /// Returns Some(identifier_node) if the node is a function/method declaration, None otherwise
+    fn find_function_declaration<'a>(&self, node: Node<'a>) -> Option<Node<'a>>;
+
     /// Creates a compiled regex for matching files of this language
     fn file_regex(&self) -> Result<Regex> {
         Regex::new(self.file_pattern())
