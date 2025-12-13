@@ -38,6 +38,11 @@ pub trait Language: Debug + Display + Copy {
     /// Returns Some(identifier_node) if the node is a function/method declaration, None otherwise
     fn find_function_declaration<'a>(&self, node: Node<'a>) -> Option<Node<'a>>;
 
+    /// Determines if a node is a valid target for LSP call hierarchy requests
+    /// Returns Some(target_node) if call hierarchy makes sense for this node, None otherwise
+    /// This includes function/method declarations and other relevant constructs like trait methods
+    fn call_hierarchy_target<'a>(&self, node: Node<'a>) -> Option<Node<'a>>;
+
     /// Creates a compiled regex for matching files of this language
     fn file_regex(&self) -> Result<Regex> {
         Regex::new(self.file_pattern())

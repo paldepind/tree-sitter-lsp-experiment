@@ -48,6 +48,11 @@ impl Language for TypeScriptLang {
         // Not implemented for TypeScript
         None
     }
+
+    fn call_hierarchy_target<'a>(&self, _node: Node<'a>) -> Option<Node<'a>> {
+        // Not implemented for TypeScript
+        None
+    }
 }
 
 impl std::fmt::Display for TypeScriptLang {

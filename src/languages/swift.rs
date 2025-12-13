@@ -91,6 +91,22 @@ impl Language for SwiftLang {
         node.children(&mut cursor)
             .find(|&child| child.kind() == "simple_identifier")
     }
+
+    fn call_hierarchy_target<'a>(&self, node: Node<'a>) -> Option<Node<'a>> {
+        // Valid targets for call hierarchy in Swift:
+        // - function_declaration (functions and methods)
+        // - protocol_function_declaration (protocol method requirements)
+        match node.kind() {
+            "function_declaration" => self.find_function_declaration(node),
+            "protocol_function_declaration" => {
+                // For protocol function declarations, find the simple_identifier
+                let mut cursor = node.walk();
+                node.children(&mut cursor)
+                    .find(|&child| child.kind() == "simple_identifier")
+            }
+            _ => None,
+        }
+    }
 }
 
 impl std::fmt::Display for SwiftLang {
@@ -195,6 +211,92 @@ mod tests {
 
         // Try with a non-function node
         let result = SwiftLang.find_function_declaration(root);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_call_hierarchy_target_function() {
+        use tree_sitter::Parser;
+
+        let mut parser = Parser::new();
+        parser
+            .set_language(&SwiftLang.tree_sitter_language())
+            .unwrap();
+
+        let source = "func hello() { print(\"Hello\") }";
+        let tree = parser.parse(source, None).unwrap();
+        let root = tree.root_node();
+
+        // Find the function_declaration node
+        let mut cursor = root.walk();
+        let function_node = root
+            .children(&mut cursor)
+            .find(|n| n.kind() == "function_declaration")
+            .expect("Should find function_declaration");
+
+        // Test call_hierarchy_target
+        let target = SwiftLang.call_hierarchy_target(function_node);
+        assert!(target.is_some());
+        assert_eq!(target.unwrap().kind(), "simple_identifier");
+    }
+
+    #[test]
+    fn test_call_hierarchy_target_protocol_method() {
+        use tree_sitter::Parser;
+
+        let mut parser = Parser::new();
+        parser
+            .set_language(&SwiftLang.tree_sitter_language())
+            .unwrap();
+
+        let source = "protocol MyProtocol { func method() }";
+        let tree = parser.parse(source, None).unwrap();
+        let root = tree.root_node();
+
+        // Find the protocol_function_declaration node
+        let mut found_protocol_func = None;
+        let mut cursor = root.walk();
+        for child in root.children(&mut cursor) {
+            if child.kind() == "protocol_declaration" {
+                let mut protocol_cursor = child.walk();
+                for protocol_child in child.children(&mut protocol_cursor) {
+                    if protocol_child.kind() == "protocol_body" {
+                        let mut body_cursor = protocol_child.walk();
+                        for body_child in protocol_child.children(&mut body_cursor) {
+                            if body_child.kind() == "protocol_function_declaration" {
+                                found_protocol_func = Some(body_child);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let protocol_func_node =
+            found_protocol_func.expect("Should find protocol_function_declaration");
+
+        // Test call_hierarchy_target
+        let target = SwiftLang.call_hierarchy_target(protocol_func_node);
+        assert!(target.is_some());
+        assert_eq!(target.unwrap().kind(), "simple_identifier");
+    }
+
+    #[test]
+    fn test_call_hierarchy_target_not_function() {
+        use tree_sitter::Parser;
+
+        let mut parser = Parser::new();
+        parser
+            .set_language(&SwiftLang.tree_sitter_language())
+            .unwrap();
+
+        let source = "let x = 5";
+        let tree = parser.parse(source, None).unwrap();
+        let root = tree.root_node();
+
+        // Try with a non-function node
+        let result = SwiftLang.call_hierarchy_target(root);
         assert!(result.is_none());
     }
 }

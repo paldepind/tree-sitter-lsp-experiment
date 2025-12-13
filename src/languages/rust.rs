@@ -55,6 +55,22 @@ impl Language for RustLang {
         node.children(&mut cursor)
             .find(|&child| child.kind() == "identifier")
     }
+
+    fn call_hierarchy_target<'a>(&self, node: Node<'a>) -> Option<Node<'a>> {
+        // Valid targets for call hierarchy in Rust:
+        // - function_item (top-level functions and associated functions)
+        // - function_signature_item (trait methods)
+        match node.kind() {
+            "function_item" => self.find_function_declaration(node),
+            "function_signature_item" => {
+                // For trait method signatures, find the identifier
+                let mut cursor = node.walk();
+                node.children(&mut cursor)
+                    .find(|&child| child.kind() == "identifier")
+            }
+            _ => None,
+        }
+    }
 }
 
 impl std::fmt::Display for RustLang {
@@ -110,6 +126,91 @@ mod tests {
 
         // Try with a non-function node
         let result = RustLang.find_function_declaration(root);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_call_hierarchy_target_function() {
+        use tree_sitter::Parser;
+
+        let mut parser = Parser::new();
+        parser
+            .set_language(&RustLang.tree_sitter_language())
+            .unwrap();
+
+        let source = "fn hello() { println!(\"Hello\"); }";
+        let tree = parser.parse(source, None).unwrap();
+        let root = tree.root_node();
+
+        // Find the function_item node
+        let mut cursor = root.walk();
+        let function_node = root
+            .children(&mut cursor)
+            .find(|n| n.kind() == "function_item")
+            .expect("Should find function_item");
+
+        // Test call_hierarchy_target
+        let target = RustLang.call_hierarchy_target(function_node);
+        assert!(target.is_some());
+        assert_eq!(target.unwrap().kind(), "identifier");
+    }
+
+    #[test]
+    fn test_call_hierarchy_target_trait_method() {
+        use tree_sitter::Parser;
+
+        let mut parser = Parser::new();
+        parser
+            .set_language(&RustLang.tree_sitter_language())
+            .unwrap();
+
+        let source = "trait MyTrait { fn method(&self); }";
+        let tree = parser.parse(source, None).unwrap();
+        let root = tree.root_node();
+
+        // Find the function_signature_item node
+        let mut found_signature = None;
+        let mut cursor = root.walk();
+        for child in root.children(&mut cursor) {
+            if child.kind() == "trait_item" {
+                let mut trait_cursor = child.walk();
+                for trait_child in child.children(&mut trait_cursor) {
+                    if trait_child.kind() == "declaration_list" {
+                        let mut decl_cursor = trait_child.walk();
+                        for decl_child in trait_child.children(&mut decl_cursor) {
+                            if decl_child.kind() == "function_signature_item" {
+                                found_signature = Some(decl_child);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let signature_node = found_signature.expect("Should find function_signature_item");
+
+        // Test call_hierarchy_target
+        let target = RustLang.call_hierarchy_target(signature_node);
+        assert!(target.is_some());
+        assert_eq!(target.unwrap().kind(), "identifier");
+    }
+
+    #[test]
+    fn test_call_hierarchy_target_not_function() {
+        use tree_sitter::Parser;
+
+        let mut parser = Parser::new();
+        parser
+            .set_language(&RustLang.tree_sitter_language())
+            .unwrap();
+
+        let source = "let x = 5;";
+        let tree = parser.parse(source, None).unwrap();
+        let root = tree.root_node();
+
+        // Try with a non-function node
+        let result = RustLang.call_hierarchy_target(root);
         assert!(result.is_none());
     }
 }

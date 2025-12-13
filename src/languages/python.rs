@@ -48,6 +48,11 @@ impl Language for PythonLang {
         // Not implemented for Python
         None
     }
+
+    fn call_hierarchy_target<'a>(&self, _node: Node<'a>) -> Option<Node<'a>> {
+        // Not implemented for Python
+        None
+    }
 }
 
 impl std::fmt::Display for PythonLang {
