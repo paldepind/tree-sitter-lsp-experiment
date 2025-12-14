@@ -15,6 +15,7 @@ use serde_json::{from_value, to_value};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use tracing::warn;
 
 use crate::language::Language;
 
@@ -344,6 +345,11 @@ impl<L: Language> LspServer<L> {
                 call_hierarchy: Some(CallHierarchyClientCapabilities {
                     dynamic_registration: Some(false),
                 }),
+                document_symbol: Some(lsp_types::DocumentSymbolClientCapabilities {
+                    dynamic_registration: Some(false),
+                    hierarchical_document_symbol_support: Some(true),
+                    ..Default::default()
+                }),
                 ..Default::default()
             }),
             workspace: Some(WorkspaceClientCapabilities {
@@ -390,6 +396,7 @@ impl<L: Language> LspServer<L> {
         match response {
             Ok(Some(lsp_types::DocumentSymbolResponse::Nested(symbols))) => Ok((symbols, false)),
             Ok(Some(lsp_types::DocumentSymbolResponse::Flat(symbols))) => {
+                warn!("LSP server returned flat document symbols, performing sketchy conversion");
                 // Convert flat symbols to nested format
                 // For flat symbols, we need to estimate the selection_range (identifier location)
                 // since SymbolInformation doesn't provide it separately
@@ -398,13 +405,13 @@ impl<L: Language> LspServer<L> {
                         .into_iter()
                         .map(|sym| {
                             let range = sym.location.range;
-                            // For flat symbols, estimate the identifier position
-                            // Most LSP servers put the range start at or near the identifier
+                            // Make a rough guess of the selection range
+                            let start = range.start;
                             let selection_range = lsp_types::Range {
-                                start: range.start,
+                                start,
                                 end: lsp_types::Position {
-                                    line: range.start.line,
-                                    character: range.start.character + sym.name.len() as u32,
+                                    line: start.line,
+                                    character: start.character + sym.name.len() as u32,
                                 },
                             };
 

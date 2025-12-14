@@ -82,24 +82,10 @@ fn prepare_call_hierarchy(
         }
         let before_prepare = std::time::Instant::now();
 
-        // For Go with flat symbols, gopls returns the range starting at the beginning of the line
-        // (character 0), but we need to point to the actual function name identifier
-        // Use the middle of the selection_range to ensure we're on the identifier
-        let position = if lsp_server.language.cli_name() == "go" {
-            let sel_start = symbol.selection_range.start;
-            let sel_end = symbol.selection_range.end;
-            lsp_types::Position {
-                line: sel_start.line,
-                character: (sel_start.character + sel_end.character) / 2,
-            }
-        } else {
-            symbol.selection_range.start
-        };
-
         let prepare_params = CallHierarchyPrepareParams {
             text_document_position_params: TextDocumentPositionParams {
                 text_document: text_document_identifier_from_path(absolute_path)?,
-                position,
+                position: symbol.selection_range.start,
             },
             work_done_progress_params: Default::default(),
         };
