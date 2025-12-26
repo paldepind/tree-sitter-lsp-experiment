@@ -14,7 +14,9 @@ use lsp_types::{
 use serde_json::{from_value, to_value};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
+use std::time::Duration;
 use tracing::warn;
 
 use crate::language::Language;
@@ -34,7 +36,7 @@ pub struct LspServer<L: Language> {
     pub language: L,
     pub working_dir: PathBuf,
     pub stdin: ChildStdin,
-    pub stdout: BufReader<ChildStdout>,
+    response_rx: Receiver<Result<serde_json::Value>>,
     next_id: u64,
 }
 
@@ -67,6 +69,21 @@ pub fn text_document_identifier_from_path(
 }
 
 impl<L: Language> LspServer<L> {
+    /// Checks if the LSP server process is still running
+    pub fn is_alive(&mut self) -> bool {
+        match self.process.try_wait() {
+            Ok(None) => true, // Still running
+            Ok(Some(status)) => {
+                tracing::warn!("LSP server has exited with status: {}", status);
+                false
+            }
+            Err(e) => {
+                tracing::warn!("Failed to check LSP server status: {}", e);
+                false
+            }
+        }
+    }
+
     /// Sends a request to the LSP server with an auto-incrementing ID
     pub fn send_request<R: Request>(&mut self, params: R::Params) -> Result<u64> {
         let id = self.next_id;
@@ -77,6 +94,11 @@ impl<L: Language> LspServer<L> {
 
     /// Sends a request to the LSP server with a specific ID
     pub fn send_request_with_id<R: Request>(&mut self, id: u64, params: R::Params) -> Result<()> {
+        // Check if the server is still alive before sending
+        if !self.is_alive() {
+            return Err(anyhow::anyhow!("LSP server process has terminated"));
+        }
+
         let request = serde_json::json!({
             "jsonrpc": "2.0",
             "id": id,
@@ -88,8 +110,21 @@ impl<L: Language> LspServer<L> {
         let request_str = serde_json::to_string(&request)?;
 
         tracing::debug!("Sending request: {}", request_str);
-        self.stdin.write_all(message.as_bytes())?;
-        self.stdin.flush()?;
+
+        // Handle potential broken pipe when writing
+        if let Err(e) = self.stdin.write_all(message.as_bytes()) {
+            if e.kind() == std::io::ErrorKind::BrokenPipe {
+                return Err(anyhow::anyhow!("LSP server connection lost (broken pipe)"));
+            }
+            return Err(e.into());
+        }
+
+        if let Err(e) = self.stdin.flush() {
+            if e.kind() == std::io::ErrorKind::BrokenPipe {
+                return Err(anyhow::anyhow!("LSP server connection lost (broken pipe)"));
+            }
+            return Err(e.into());
+        }
 
         Ok(())
     }
@@ -145,36 +180,38 @@ impl<L: Language> LspServer<L> {
 
     /// Reads a response from the LSP server
     pub fn read_response(&mut self) -> Result<serde_json::Value> {
-        // Read headers
-        let mut content_length = 0;
-        loop {
-            let mut header = String::new();
-            self.stdout.read_line(&mut header)?;
-
-            if header == "\r\n" {
-                break;
-            }
-
-            if let Some(length_str) = header.strip_prefix("Content-Length: ") {
-                content_length = length_str.trim().parse()?;
-            }
+        // Check if server is still alive first
+        if !self.is_alive() {
+            return Err(anyhow::anyhow!("LSP server process has terminated"));
         }
 
-        // Read content
-        let mut buffer = vec![0; content_length];
-        std::io::Read::read_exact(&mut self.stdout, &mut buffer)?;
-
-        let response_str = String::from_utf8(buffer)?;
-        tracing::debug!("Received message: {}", response_str);
-
-        let response: serde_json::Value = serde_json::from_str(&response_str)?;
-        Ok(response)
+        // Wait for response with a timeout
+        match self.response_rx.recv_timeout(Duration::from_secs(30)) {
+            Ok(result) => result,
+            Err(RecvTimeoutError::Timeout) => Err(anyhow::anyhow!(
+                "Timeout waiting for LSP response after 30 seconds"
+            )),
+            Err(RecvTimeoutError::Disconnected) => Err(anyhow::anyhow!(
+                "LSP server response channel disconnected - server likely crashed"
+            )),
+        }
     }
 
     /// Reads responses until finding one with the expected ID
     pub fn read_response_with_id(&mut self, expected_id: u64) -> Result<serde_json::Value> {
         // Keep reading messages until we find the response with the matching ID
+        let start = std::time::Instant::now();
+        let overall_timeout = Duration::from_secs(30);
+
         loop {
+            // Check overall timeout
+            if start.elapsed() > overall_timeout {
+                return Err(anyhow::anyhow!(
+                    "Overall timeout waiting for response with ID {}",
+                    expected_id
+                ));
+            }
+
             let message = self.read_response()?;
 
             // Check if this is a notification (no id field) or response
@@ -294,7 +331,71 @@ impl<L: Language> LspServer<L> {
             .stdout
             .take()
             .ok_or_else(|| anyhow::anyhow!("Failed to get stdout"))?;
-        let stdout = BufReader::new(stdout);
+
+        // Create a channel for receiving responses
+        let (response_tx, response_rx) = channel();
+
+        // Spawn a thread to read responses from stdout
+        std::thread::spawn(move || {
+            let mut stdout = BufReader::new(stdout);
+            loop {
+                // Read headers
+                let mut content_length = 0;
+                loop {
+                    let mut header = String::new();
+                    match stdout.read_line(&mut header) {
+                        Ok(0) => {
+                            // EOF reached
+                            return;
+                        }
+                        Ok(_) => {
+                            if header == "\r\n" {
+                                break;
+                            }
+                            if let Some(length_str) = header.strip_prefix("Content-Length: ") {
+                                content_length = length_str.trim().parse().unwrap_or(0);
+                            }
+                        }
+                        Err(e) => {
+                            let _ = response_tx
+                                .send(Err(anyhow::anyhow!("Failed to read header: {}", e)));
+                            return;
+                        }
+                    }
+                }
+
+                // Read content
+                let mut buffer = vec![0; content_length];
+                if let Err(e) = std::io::Read::read_exact(&mut stdout, &mut buffer) {
+                    let _ = response_tx.send(Err(anyhow::anyhow!("Failed to read content: {}", e)));
+                    return;
+                }
+
+                let response_str = match String::from_utf8(buffer) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        let _ = response_tx
+                            .send(Err(anyhow::anyhow!("Invalid UTF-8 in response: {}", e)));
+                        continue;
+                    }
+                };
+
+                tracing::debug!("Received message: {}", response_str);
+
+                match serde_json::from_str(&response_str) {
+                    Ok(response) => {
+                        if response_tx.send(Ok(response)).is_err() {
+                            // Receiver has been dropped
+                            return;
+                        }
+                    }
+                    Err(e) => {
+                        let _ =
+                            response_tx.send(Err(anyhow::anyhow!("Failed to parse JSON: {}", e)));
+                    }
+                }
+            }
+        });
 
         // Spawn a thread to consume stderr to prevent the LSP server from blocking
         // when the stderr pipe fills up
@@ -314,7 +415,7 @@ impl<L: Language> LspServer<L> {
             language,
             working_dir,
             stdin,
-            stdout,
+            response_rx,
             next_id: 1,
         })
     }
