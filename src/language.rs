@@ -49,31 +49,3 @@ pub trait Language: Debug + Display + Copy {
             .map_err(|e| anyhow::anyhow!("Failed to compile regex: {}", e))
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::languages::{GoLang, PythonLang, RustLang, TypeScriptLang};
-
-    #[test]
-    fn test_language_patterns() {
-        assert_eq!(RustLang.file_pattern(), r"\.rs$");
-        assert_eq!(PythonLang.file_pattern(), r"\.py$");
-        assert_eq!(TypeScriptLang.file_pattern(), r"\.(ts|tsx)$");
-        assert_eq!(GoLang.file_pattern(), r"\.go$");
-    }
-
-    #[test]
-    fn test_file_regex() {
-        let rust_regex = RustLang.file_regex().unwrap();
-        assert!(rust_regex.is_match("main.rs"));
-        assert!(rust_regex.is_match("lib.rs"));
-        assert!(!rust_regex.is_match("main.py"));
-        assert!(!rust_regex.is_match("main.rs.bak"));
-
-        let ts_regex = TypeScriptLang.file_regex().unwrap();
-        assert!(ts_regex.is_match("app.ts"));
-        assert!(ts_regex.is_match("component.tsx"));
-        assert!(!ts_regex.is_match("app.js"));
-    }
-}

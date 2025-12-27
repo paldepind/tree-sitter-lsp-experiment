@@ -11,13 +11,6 @@ use tree_sitter::{Node, Parser, Tree, TreeCursor};
 use crate::{call_node::CallNode, language::Language};
 
 /// Parses source code content using Tree Sitter for the specified language
-///
-/// # Arguments
-/// * `source_code` - The source code string to parse
-/// * `language` - The programming language of the source code
-///
-/// # Returns
-/// * `Result<Tree>` - The parsed syntax tree or an error
 pub fn parse_file_content(source_code: &str, language: impl Language) -> Result<Tree> {
     // Create a parser
     let mut parser = Parser::new();
@@ -42,13 +35,6 @@ pub fn parse_file_content(source_code: &str, language: impl Language) -> Result<
 }
 
 /// Parses a file using Tree Sitter for the specified language
-///
-/// # Arguments
-/// * `file_path` - Path to the file to parse
-/// * `language` - The programming language of the file
-///
-/// # Returns
-/// * `Result<Tree>` - The parsed syntax tree or an error
 pub fn parse_file(file_path: &Path, language: impl Language) -> Result<Tree> {
     // Read the file contents
     let source_code = fs::read_to_string(file_path)
@@ -127,24 +113,24 @@ impl<'a, L: Language> Iterator for CallIterator<'a, L> {
             let node = self.cursor.node();
 
             // Check if current node is a call using the language-specific method
-            if self.visited_root {
-                if let Some(goto_definition_node) = self.language.find_call(node) {
-                    let call_node = CallNode {
-                        call_node: node,
-                        goto_definition_node,
-                    };
+            if self.visited_root
+                && let Some(goto_definition_node) = self.language.find_call(node)
+            {
+                let call_node = CallNode {
+                    call_node: node,
+                    goto_definition_node,
+                };
 
-                    // Move to next node for the next iteration
-                    if !self.cursor.goto_first_child() {
-                        while !self.cursor.goto_next_sibling() {
-                            if !self.cursor.goto_parent() {
-                                return Some(call_node);
-                            }
+                // Move to next node for the next iteration
+                if !self.cursor.goto_first_child() {
+                    while !self.cursor.goto_next_sibling() {
+                        if !self.cursor.goto_parent() {
+                            return Some(call_node);
                         }
                     }
-
-                    return Some(call_node);
                 }
+
+                return Some(call_node);
             }
 
             self.visited_root = true;

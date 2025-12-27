@@ -193,6 +193,7 @@ fn extract_call_hierachy_for_files<L: Language>(
         let before_symbols = std::time::Instant::now();
         let (symbols, is_flat) = lsp_server.get_document_symbols(&absolute_path)?;
         let symbols_elapsed = before_symbols.elapsed();
+
         durations.push((file_path.to_str().unwrap_or(""), symbols_elapsed));
 
         println!(
@@ -201,6 +202,9 @@ fn extract_call_hierachy_for_files<L: Language>(
             if is_flat { "flat" } else { "nested" },
             symbols_elapsed
         );
+        let before_parse = std::time::Instant::now();
+        let _ = parse_file_content(&file_content, language)?;
+        println!("Parsed file content in {:.2?}", before_parse.elapsed());
 
         let mut symbols_with_calls = Vec::new();
         collect_symbols_with_calls(&symbols, &mut symbols_with_calls);
