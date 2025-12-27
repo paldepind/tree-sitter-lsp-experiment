@@ -149,10 +149,7 @@ pub fn find_all_call_targets<L: Language>(
         };
 
         // Open the document in the LSP server
-        if let Err(e) = lsp_server.open_file(file_path, &file_content) {
-            tracing::warn!("Failed to open document {}: {}", file_path.display(), e);
-            continue;
-        }
+        lsp_server.open_file(file_path, &file_content)?;
 
         // Some LSP servers seem to require a bit of time before they're ready
         // tracing::info!("Waiting for LSP server to index the project...");

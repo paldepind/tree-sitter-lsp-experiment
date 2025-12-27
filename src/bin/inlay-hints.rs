@@ -73,10 +73,7 @@ fn process_files<L: Language>(
         };
 
         // Open the document in the LSP server
-        if let Err(e) = lsp_server.open_file(&absolute_path, &file_content) {
-            tracing::warn!("Failed to open document {}: {}", absolute_path.display(), e);
-            continue;
-        }
+        lsp_server.open_file(&absolute_path, &file_content)?;
 
         // Count lines in the file
         let line_count = file_content.lines().count() as u32;

@@ -19,16 +19,6 @@ use tree_sitter_lsp_experiment::{
     lsp::text_document_identifier_from_path, parser::parse_file_content,
 };
 
-// fn mk_outgoing_call_result(call: &CallHierarchyOutgoingCall) -> Option<OutgoingCallResult> {
-//     Some(OutgoingCallResult {
-//         to_name: call.to.name.clone(),
-//         to_kind: call.to.kind,
-//         to_range: call.to.range,
-//         to_selection_range: call.to.selection_range,
-//         from_ranges: *call.from_ranges.first()?,
-//     })
-// }
-
 fn extract_call_hierachy<L: Language>(
     language: L,
     project_path: &Path,
@@ -70,6 +60,12 @@ fn collect_symbols_with_calls<'a>(
             collect_symbols_with_calls(children, result);
         }
     }
+}
+
+fn get_symbols_with_calls(symbols: &[lsp_types::DocumentSymbol]) -> Vec<&DocumentSymbol> {
+    let mut symbols_with_calls = Vec::new();
+    collect_symbols_with_calls(symbols, &mut symbols_with_calls);
+    symbols_with_calls
 }
 
 fn prepare_call_hierarchy(
@@ -219,7 +215,7 @@ fn extract_call_hierachy_for_files<L: Language>(
 
     // NOTE: It seems that for some LSP servers, giving them a bit of time to
     // start makes it possible for them to resolve more call hierarchy requests.
-    std::thread::sleep(std::time::Duration::from_millis(1000));
+    std::thread::sleep(std::time::Duration::from_millis(10_000));
 
     let start_time = std::time::Instant::now();
     // Process each file
@@ -265,10 +261,7 @@ fn extract_call_hierachy_for_files<L: Language>(
         let file_lines: Vec<&str> = file_content.lines().collect();
 
         // Open the document in the LSP server
-        if let Err(e) = lsp_server.open_file(&absolute_path, &file_content) {
-            tracing::warn!("Failed to open document {}: {}", absolute_path.display(), e);
-            continue;
-        }
+        lsp_server.open_file(&absolute_path, &file_content)?;
 
         // Request document symbols
         let before_symbols = std::time::Instant::now();
@@ -283,36 +276,30 @@ fn extract_call_hierachy_for_files<L: Language>(
             if is_flat { "flat" } else { "nested" },
             symbols_elapsed
         );
+
+        // Parse the file with tree sitter, this is merely to compare performance
         let before_parse = std::time::Instant::now();
         let _ = parse_file_content(&file_content, language)?;
         println!("Parsed file content in {:.2?}", before_parse.elapsed());
 
-        let mut symbols_with_calls = Vec::new();
-        collect_symbols_with_calls(&symbols, &mut symbols_with_calls);
+        let symbols = get_symbols_with_calls(&symbols);
 
         println!(
             "\nFound {} callable symbols (functions/methods)",
-            symbols_with_calls.len()
+            symbols.len()
         );
-        total_symbols += symbols_with_calls.len();
+        total_symbols += symbols.len();
 
         // Get call hierarchy information for each callable symbol
-        for (i, symbol) in symbols_with_calls.iter().enumerate() {
+        for (i, symbol) in symbols.iter().enumerate() {
             println!(
                 "\n[{}/{}] [{}/{}] Analyzing calls for: {}",
                 index + 1,
                 files.len(),
                 i + 1,
-                symbols_with_calls.len(),
+                symbols.len(),
                 symbol.name
             );
-
-            // Check if LSP server is still alive before trying to use it
-            if !lsp_server.is_alive() {
-                println!("  Skipping - LSP server has terminated");
-                tracing::warn!("LSP server is no longer running, stopping file processing");
-                return Ok(());
-            }
 
             // Only enable retries for the first two symbols, as the LSP server
             // might not have finished loading the file yet.
@@ -328,12 +315,6 @@ fn extract_call_hierachy_for_files<L: Language>(
                     Err(e) => {
                         println!("  Error: {}", e);
                         tracing::warn!("Failed to get call hierarchy for {}: {}", symbol.name, e);
-
-                        // If the server has died, stop trying to process more symbols
-                        if !lsp_server.is_alive() {
-                            tracing::warn!("LSP server died, stopping file processing");
-                            break;
-                        }
                         continue;
                     }
                 };
@@ -356,24 +337,16 @@ fn extract_call_hierachy_for_files<L: Language>(
             total_calls += result.outgoing.len();
             for call in result.outgoing.iter().take(10) {
                 // Get the line number and source code where the call is made from
-                let from_line_str = match call.from_ranges.first() {
-                    Some(range) => {
-                        print_highlighted_range(&file_lines, *range);
-                        let line_num = range.start.line as usize;
-                        format!("from line {}", line_num + 1)
-                    }
-                    None => {
-                        panic!("wwwahhhhtt");
-                        // String::from("from unknown line"),
-                    }
+                let Some(range) = call.from_ranges.first() else {
+                    panic!("No from_ranges in outgoing call");
                 };
 
+                print_highlighted_range(&file_lines, *range);
                 println!(
-                    "    -> {} ({}:{}) {}",
+                    " -> {} ({}:{})",
                     call.to.name,
                     call.to.uri.path(),
                     call.to.selection_range.start.line + 1,
-                    from_line_str
                 );
             }
             if result.outgoing.len() > 10 {
@@ -393,22 +366,23 @@ fn extract_call_hierachy_for_files<L: Language>(
         total_calls, total_incoming_calls, elapsed, ops_per_sec
     );
     println!(
-        "Symbols processed : {} {:.2} symbols/sec",
+        "Symbols processed: {}, {:.2} symbols/sec",
         total_symbols,
         total_symbols as f64 / elapsed.as_secs_f64()
     );
     println!(
-        "Calls per request : {:.3}",
+        "Calls per request: {:.3}",
         total_calls as f64 / total_symbols as f64
     );
-    durations.sort_by_key(|t| t.1);
-    let total_durations: Duration = durations.iter().map(|(_, duration)| duration).sum();
-    print!(
-        "Total durations: {:.2?} n={}",
-        total_durations,
-        durations.len()
-    );
-    print!("All durations: {:?}", durations);
+
+    // durations.sort_by_key(|t| t.1);
+    // let total_durations: Duration = durations.iter().map(|(_, duration)| duration).sum();
+    // print!(
+    //     "Total durations: {:.2?} n={}",
+    //     total_durations,
+    //     durations.len()
+    // );
+    // print!("All durations: {:?}", durations);
 
     Ok(())
 }

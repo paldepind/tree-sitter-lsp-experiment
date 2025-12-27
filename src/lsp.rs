@@ -8,8 +8,8 @@ use lsp_types::notification::{
 use lsp_types::request::{DocumentSymbolRequest, Initialize, Request};
 use lsp_types::{
     DidCloseTextDocumentParams, DidOpenTextDocumentParams, DocumentSymbol, DocumentSymbolParams,
-    InitializeParams, InitializedParams, TextDocumentIdentifier, TextDocumentItem, Uri,
-    WorkspaceFolder,
+    InitializeParams, InitializedParams, Position, TextDocumentIdentifier, TextDocumentItem,
+    TextDocumentPositionParams, Uri, WorkspaceFolder,
 };
 use serde_json::{from_value, to_value};
 use std::io::{BufRead, BufReader, Write};
@@ -60,11 +60,19 @@ pub fn uri_from_path(path: &std::path::Path) -> Result<Uri> {
     Ok(format!("file://{}", path.display()).parse()?)
 }
 
-pub fn text_document_identifier_from_path(
-    file_path: &std::path::Path,
-) -> Result<TextDocumentIdentifier> {
+pub fn text_document_identifier_from_path(file_path: &Path) -> Result<TextDocumentIdentifier> {
     Ok(TextDocumentIdentifier {
         uri: uri_from_path(file_path)?,
+    })
+}
+
+pub fn text_document_position_params(
+    path: &Path,
+    position: Position,
+) -> Result<TextDocumentPositionParams> {
+    Ok(TextDocumentPositionParams {
+        text_document: text_document_identifier_from_path(path)?,
+        position,
     })
 }
 
@@ -151,14 +159,18 @@ impl<L: Language> LspServer<L> {
     ///
     /// This sends a `textDocument/didOpen` notification to inform the LSP server
     /// that a file is now open for editing.
-    pub fn open_file(&mut self, file_path: &std::path::Path, file_content: &str) -> Result<()> {
+    pub fn open_file(&mut self, path: &std::path::Path, file_content: &str) -> Result<()> {
         self.send_notification::<DidOpenTextDocument>(DidOpenTextDocumentParams {
             text_document: TextDocumentItem {
-                uri: uri_from_path(file_path)?,
+                uri: uri_from_path(path)?,
                 language_id: self.language.to_string().to_lowercase(),
                 version: 1,
                 text: file_content.to_string(),
             },
+        })
+        .map_err(|err| {
+            tracing::warn!("Failed to open document {}: {}", path.display(), err);
+            err
         })
     }
 

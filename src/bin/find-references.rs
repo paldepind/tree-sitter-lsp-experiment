@@ -3,11 +3,9 @@
 //! Usage: cargo run --bin find-references -- <project_path> --language <language>
 
 use anyhow::Result;
-use lsp_types::{
-    ReferenceContext, ReferenceParams, SymbolKind, TextDocumentPositionParams, request::References,
-};
+use lsp_types::{ReferenceContext, ReferenceParams, SymbolKind, request::References};
 use std::path::Path;
-use tree_sitter_lsp_experiment::lsp::text_document_identifier_from_path;
+use tree_sitter_lsp_experiment::lsp::text_document_position_params;
 use tree_sitter_lsp_experiment::{
     Args, FileSearchConfig, GoLang, Language, LspServer, PythonLang, RustLang, SwiftLang,
     TypeScriptLang,
@@ -76,10 +74,7 @@ fn process_files<L: Language>(
         };
 
         // Open the document in the LSP server
-        if let Err(e) = lsp_server.open_file(&absolute_path, &file_content) {
-            tracing::warn!("Failed to open document {}: {}", absolute_path.display(), e);
-            continue;
-        }
+        lsp_server.open_file(&absolute_path, &file_content)?;
 
         // Request document symbols
         let before_symbols = std::time::Instant::now();
@@ -131,10 +126,10 @@ fn process_files<L: Language>(
 
             // Request references at the symbol's position with exponential backoff
             let reference_params = ReferenceParams {
-                text_document_position: TextDocumentPositionParams {
-                    text_document: text_document_identifier_from_path(&absolute_path)?,
-                    position: symbol.selection_range.start,
-                },
+                text_document_position: text_document_position_params(
+                    &absolute_path,
+                    symbol.selection_range.start,
+                )?,
                 work_done_progress_params: Default::default(),
                 partial_result_params: Default::default(),
                 context: ReferenceContext {
