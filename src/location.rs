@@ -1,6 +1,6 @@
 use lsp_types::Range;
 
-pub fn highlight_range(file_lines: &[&str], range: Range) {
+pub fn print_highlighted_range(file_lines: &[&str], range: Range) {
     let start_line = range.start.line as usize;
     let start_character = range.start.character as usize;
     let end_line = range.end.line as usize;

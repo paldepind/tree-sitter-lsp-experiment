@@ -4,28 +4,30 @@
 
 use anyhow::Result;
 use lsp_types::{
-    CallHierarchyIncomingCallsParams, CallHierarchyOutgoingCall, CallHierarchyOutgoingCallsParams,
-    CallHierarchyPrepareParams, Range, TextDocumentPositionParams,
+    CallHierarchyIncomingCallsParams, CallHierarchyOutgoingCallsParams, CallHierarchyPrepareParams,
+    TextDocumentPositionParams,
     request::{CallHierarchyIncomingCalls, CallHierarchyOutgoingCalls, CallHierarchyPrepare},
 };
 use lsp_types::{DocumentSymbol, SymbolKind};
-use std::{os::unix::thread, path::Path, time::Duration};
-use tree_sitter_lsp_experiment::lsp::text_document_identifier_from_path;
+use std::{path::Path, time::Duration};
+use tree_sitter_lsp_experiment::location::print_highlighted_range;
 use tree_sitter_lsp_experiment::{
     Args, FileSearchConfig, GoLang, Language, LspServer, PythonLang, RustLang, SwiftLang,
     TypeScriptLang,
 };
-use tree_sitter_lsp_experiment::{location::highlight_range, lsp};
+use tree_sitter_lsp_experiment::{
+    lsp::text_document_identifier_from_path, parser::parse_file_content,
+};
 
-fn mk_outgoing_call_result(call: &CallHierarchyOutgoingCall) -> Option<OutgoingCallResult> {
-    Some(OutgoingCallResult {
-        to_name: call.to.name.clone(),
-        to_kind: call.to.kind,
-        to_range: call.to.range,
-        to_selection_range: call.to.selection_range,
-        from_ranges: *call.from_ranges.first()?,
-    })
-}
+// fn mk_outgoing_call_result(call: &CallHierarchyOutgoingCall) -> Option<OutgoingCallResult> {
+//     Some(OutgoingCallResult {
+//         to_name: call.to.name.clone(),
+//         to_kind: call.to.kind,
+//         to_range: call.to.range,
+//         to_selection_range: call.to.selection_range,
+//         from_ranges: *call.from_ranges.first()?,
+//     })
+// }
 
 fn extract_call_hierachy<L: Language>(
     language: L,
@@ -119,6 +121,85 @@ fn prepare_call_hierarchy(
         }
     }
     Ok(None)
+}
+
+struct CallHierarchyResult {
+    incoming: Vec<lsp_types::CallHierarchyIncomingCall>,
+    outgoing: Vec<lsp_types::CallHierarchyOutgoingCall>,
+}
+
+/// Prepares call hierarchy and fetches both incoming and outgoing calls for a symbol
+fn get_call_hierarchy(
+    lsp_server: &mut LspServer<impl Language>,
+    absolute_path: &Path,
+    symbol: &DocumentSymbol,
+    enable_retries: bool,
+) -> Result<Option<CallHierarchyResult>> {
+    let before_prepare = std::time::Instant::now();
+
+    // Prepare call hierarchy
+    let Some(item) = prepare_call_hierarchy(lsp_server, absolute_path, symbol, enable_retries)?
+    else {
+        println!(
+            "  No call hierarchy items found after {:?} (including retries)",
+            before_prepare.elapsed()
+        );
+        return Ok(None);
+    };
+
+    let before_incoming = std::time::Instant::now();
+    // Get incoming calls
+    let incoming_params = CallHierarchyIncomingCallsParams {
+        item: item.clone(),
+        work_done_progress_params: Default::default(),
+        partial_result_params: Default::default(),
+    };
+    let incoming = match lsp_server.request::<CallHierarchyIncomingCalls>(incoming_params) {
+        Ok(Some(incoming)) => {
+            println!(
+                "  Incoming calls after {:?} ({}):",
+                before_incoming.elapsed(),
+                incoming.len()
+            );
+            incoming
+        }
+        Ok(None) => {
+            println!("  Incoming calls: 0");
+            Vec::new()
+        }
+        Err(e) => {
+            tracing::warn!("  Failed to get incoming calls: {}", e);
+            Vec::new()
+        }
+    };
+
+    let before_outgoing = std::time::Instant::now();
+    // Get outgoing calls
+    let outgoing_params = CallHierarchyOutgoingCallsParams {
+        item: item.clone(),
+        work_done_progress_params: Default::default(),
+        partial_result_params: Default::default(),
+    };
+    let outgoing = match lsp_server.request::<CallHierarchyOutgoingCalls>(outgoing_params) {
+        Ok(Some(outgoing)) => {
+            println!(
+                "  Outgoing calls after {:?} ({}):",
+                before_outgoing.elapsed(),
+                outgoing.len()
+            );
+            outgoing
+        }
+        Ok(None) => {
+            println!("  Outgoing calls: 0");
+            Vec::new()
+        }
+        Err(e) => {
+            tracing::warn!("  Failed to get outgoing calls: {}", e);
+            Vec::new()
+        }
+    };
+
+    Ok(Some(CallHierarchyResult { incoming, outgoing }))
 }
 
 fn extract_call_hierachy_for_files<L: Language>(
@@ -226,135 +307,77 @@ fn extract_call_hierachy_for_files<L: Language>(
                 symbol.name
             );
 
-            let before_prepare = std::time::Instant::now();
-            // Prepare call hierarchy at the symbol's position
+            // Check if LSP server is still alive before trying to use it
+            if !lsp_server.is_alive() {
+                println!("  Skipping - LSP server has terminated");
+                tracing::warn!("LSP server is no longer running, stopping file processing");
+                return Ok(());
+            }
 
             // Only enable retries for the first two symbols, as the LSP server
             // might not have finished loading the file yet.
             let enable_retries = i < 2;
-            let Some(item) =
-                prepare_call_hierarchy(&mut lsp_server, &absolute_path, symbol, enable_retries)?
-            else {
+
+            let result =
+                match get_call_hierarchy(&mut lsp_server, &absolute_path, symbol, enable_retries) {
+                    Ok(Some(r)) => r,
+                    Ok(None) => {
+                        println!("  No call hierarchy available");
+                        continue;
+                    }
+                    Err(e) => {
+                        println!("  Error: {}", e);
+                        tracing::warn!("Failed to get call hierarchy for {}: {}", symbol.name, e);
+
+                        // If the server has died, stop trying to process more symbols
+                        if !lsp_server.is_alive() {
+                            tracing::warn!("LSP server died, stopping file processing");
+                            break;
+                        }
+                        continue;
+                    }
+                };
+
+            // Display incoming calls
+            total_incoming_calls += result.incoming.len();
+            for call in result.incoming.iter().take(10) {
                 println!(
-                    "  No call hierarchy items found after {:?} (including retries)",
-                    before_prepare.elapsed()
+                    "    <- {} ({}:{})",
+                    call.from.name,
+                    call.from.uri.path(),
+                    call.from.selection_range.start.line + 1
                 );
-                continue;
-            };
+            }
+            if result.incoming.len() > 10 {
+                println!("    ... and {} more", result.incoming.len() - 10);
+            }
 
-            // let prepare_params = CallHierarchyPrepareParams {
-            //     text_document_position_params: TextDocumentPositionParams {
-            //         text_document: text_document_identifier_from_path(&absolute_path)?,
-            //         position: symbol.selection_range.start,
-            //     },
-            //     work_done_progress_params: Default::default(),
-            // };
-            // let prepare_response = lsp_server.request::<CallHierarchyPrepare>(prepare_params);
-            // let prepare_elapsed = before_prepare.elapsed();
-
-            // let call_hierarchy_items = match prepare_response {
-            //     Ok(Some(items)) => items,
-            //     Ok(None) => {
-            //         println!("  No call hierarchy available ({:?})", prepare_elapsed);
-            //         continue;
-            //     }
-            //     Err(e) => {
-            //         tracing::warn!(
-            //             "Failed to prepare call hierarchy ({:?}): {}",
-            //             prepare_elapsed,
-            //             e
-            //         );
-            //         continue;
-            //     }
-            // };
-
-            // if call_hierarchy_items.is_empty() {
-            //     println!("  No call hierarchy items found ({:?})", prepare_elapsed);
-            //     continue;
-            // }
-
-            // println!("  Prepared call hierarchy ({:?})", prepare_elapsed);
-            // let item = &call_hierarchy_items[0];
-
-            // let before_incoming = std::time::Instant::now();
-            // // Get incoming calls
-            // let incoming_params = CallHierarchyIncomingCallsParams {
-            //     item: item.clone(),
-            //     work_done_progress_params: Default::default(),
-            //     partial_result_params: Default::default(),
-            // };
-            // match lsp_server.request::<CallHierarchyIncomingCalls>(incoming_params) {
-            //     Ok(Some(incoming)) => {
-            //         println!(
-            //             "  Incoming calls after {:?} ({}):",
-            //             before_incoming.elapsed(),
-            //             incoming.len()
-            //         );
-            //         total_incoming_calls += incoming.len();
-            //         for call in incoming.iter().take(10) {
-            //             println!(
-            //                 "    <- {} ({}:{})",
-            //                 call.from.name,
-            //                 call.from.uri.path(),
-            //                 call.from.selection_range.start.line + 1
-            //             );
-            //         }
-            //         if incoming.len() > 10 {
-            //             println!("    ... and {} more", incoming.len() - 10);
-            //         }
-            //     }
-            //     Ok(None) => println!("  Incoming calls: 0"),
-            //     Err(e) => tracing::warn!("  Failed to get incoming calls: {}", e),
-            // }
-
-            let before_outgoing = std::time::Instant::now();
-            // Get outgoing calls
-            let outgoing_params = CallHierarchyOutgoingCallsParams {
-                item: item.clone(),
-                work_done_progress_params: Default::default(),
-                partial_result_params: Default::default(),
-            };
-
-            match lsp_server.request::<CallHierarchyOutgoingCalls>(outgoing_params) {
-                Ok(Some(outgoing)) => {
-                    println!(
-                        "  Outgoing calls after {:?} ({}):",
-                        before_outgoing.elapsed(),
-                        outgoing.len()
-                    );
-                    let _results = outgoing
-                        .iter()
-                        .filter_map(mk_outgoing_call_result)
-                        .collect::<Vec<_>>();
-                    total_calls += outgoing.len();
-                    for call in outgoing.iter().take(10) {
-                        // Get the line number and source code where the call is made from
-                        let from_line_str = match call.from_ranges.first() {
-                            Some(range) => {
-                                highlight_range(&file_lines, *range);
-                                let line_num = range.start.line as usize;
-                                format!("from line {}", line_num + 1)
-                            }
-                            None => {
-                                panic!("wwwahhhhtt");
-                                // String::from("from unknown line"),
-                            }
-                        };
-
-                        println!(
-                            "    -> {} ({}:{}) {}",
-                            call.to.name,
-                            call.to.uri.path(),
-                            call.to.selection_range.start.line + 1,
-                            from_line_str
-                        );
+            // Display outgoing calls
+            total_calls += result.outgoing.len();
+            for call in result.outgoing.iter().take(10) {
+                // Get the line number and source code where the call is made from
+                let from_line_str = match call.from_ranges.first() {
+                    Some(range) => {
+                        print_highlighted_range(&file_lines, *range);
+                        let line_num = range.start.line as usize;
+                        format!("from line {}", line_num + 1)
                     }
-                    if outgoing.len() > 10 {
-                        println!("    ... and {} more", outgoing.len() - 10);
+                    None => {
+                        panic!("wwwahhhhtt");
+                        // String::from("from unknown line"),
                     }
-                }
-                Ok(None) => println!("  Outgoing calls: 0"),
-                Err(e) => tracing::warn!("  Failed to get outgoing calls: {}", e),
+                };
+
+                println!(
+                    "    -> {} ({}:{}) {}",
+                    call.to.name,
+                    call.to.uri.path(),
+                    call.to.selection_range.start.line + 1,
+                    from_line_str
+                );
+            }
+            if result.outgoing.len() > 10 {
+                println!("    ... and {} more", result.outgoing.len() - 10);
             }
         }
 
