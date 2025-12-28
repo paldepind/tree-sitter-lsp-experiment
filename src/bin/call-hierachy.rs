@@ -9,6 +9,7 @@ use lsp_types::{
     request::{CallHierarchyIncomingCalls, CallHierarchyOutgoingCalls, CallHierarchyPrepare},
 };
 use lsp_types::{DocumentSymbol, SymbolKind};
+use serde::Serialize;
 use std::{path::Path, time::Duration};
 use tree_sitter_lsp_experiment::location::print_highlighted_range;
 use tree_sitter_lsp_experiment::{
@@ -19,17 +20,42 @@ use tree_sitter_lsp_experiment::{
     lsp::text_document_identifier_from_path, parser::parse_file_content,
 };
 
+/// Represents a single call and its target
+#[derive(Debug, Serialize)]
+struct CallInfo {
+    /// The file path of the call
+    call_file: String,
+    /// The place where the call is made
+    call_range: lsp_types::Range,
+    /// The name of the function/method being called
+    target_name: String,
+    /// The file path of the target
+    target_file: String,
+    /// The line number where the target is defined
+    target_line: u32,
+}
+
+impl CallInfo {
+    pub fn pretty_print(&self, file_lines: &[&str]) {
+        print_highlighted_range(file_lines, self.call_range);
+        println!(
+            " -> {} ({}:{})",
+            self.target_name, self.target_file, self.target_line
+        );
+    }
+}
+
 fn extract_call_hierachy<L: Language>(
     language: L,
     project_path: &Path,
     config: &FileSearchConfig,
-) -> Result<()> {
+) -> Result<Vec<CallInfo>> {
     // Find all matching files
     let matching_files = config.find_language_files(project_path, language)?;
 
     if matching_files.is_empty() {
         println!("No matching files found in {}", project_path.display());
-        return Ok(());
+        return Ok(Vec::new());
     }
 
     println!("Found {} matching files", matching_files.len());
@@ -202,10 +228,11 @@ fn extract_call_hierachy_for_files<L: Language>(
     language: L,
     project_path: &Path,
     files: &[std::path::PathBuf],
-) -> Result<()> {
+) -> Result<Vec<CallInfo>> {
     let mut total_calls = 0;
     let mut total_incoming_calls = 0;
     let mut total_symbols = 0;
+    let mut all_calls = Vec::new();
 
     // Start and initialize LSP server
     tracing::info!("Starting LSP server for {}...", language);
@@ -333,21 +360,29 @@ fn extract_call_hierachy_for_files<L: Language>(
                 println!("    ... and {} more", result.incoming.len() - 10);
             }
 
-            // Display outgoing calls
+            // Display outgoing calls and collect them
             total_calls += result.outgoing.len();
-            for call in result.outgoing.iter().take(10) {
+            for call in result.outgoing.iter() {
                 // Get the line number and source code where the call is made from
                 let Some(range) = call.from_ranges.first() else {
                     panic!("No from_ranges in outgoing call");
                 };
 
-                print_highlighted_range(&file_lines, *range);
-                println!(
-                    " -> {} ({}:{})",
-                    call.to.name,
-                    call.to.uri.path(),
-                    call.to.selection_range.start.line + 1,
-                );
+                let call_info = CallInfo {
+                    call_file: absolute_path.display().to_string(),
+                    call_range: *range,
+                    target_name: call.to.name.clone(),
+                    target_file: call.to.uri.path().to_string(),
+                    target_line: call.to.selection_range.start.line + 1,
+                };
+
+                // Display first 10 for console output
+                if all_calls.len() <= total_calls - result.outgoing.len() + 10 {
+                    call_info.pretty_print(&file_lines);
+                }
+
+                // Store call information
+                all_calls.push(call_info);
             }
             if result.outgoing.len() > 10 {
                 println!("    ... and {} more", result.outgoing.len() - 10);
@@ -384,7 +419,7 @@ fn extract_call_hierachy_for_files<L: Language>(
     // );
     // print!("All durations: {:?}", durations);
 
-    Ok(())
+    Ok(all_calls)
 }
 
 fn main() -> Result<()> {
@@ -404,18 +439,30 @@ fn main() -> Result<()> {
     let start_time = std::time::Instant::now();
 
     // Process files based on language
-    match args.language.as_str() {
+    let call_results = match args.language.as_str() {
         "rust" => extract_call_hierachy(RustLang, &args.project_path, &config)?,
         "python" => extract_call_hierachy(PythonLang, &args.project_path, &config)?,
         "typescript" => extract_call_hierachy(TypeScriptLang, &args.project_path, &config)?,
         "go" => extract_call_hierachy(GoLang, &args.project_path, &config)?,
         "swift" => extract_call_hierachy(SwiftLang, &args.project_path, &config)?,
         _ => unreachable!(),
-    }
+    };
 
     let elapsed = start_time.elapsed();
     println!("\n{}", "=".repeat(80));
     println!("Completed in {:.2?}", elapsed);
+
+    // Write output to JSON file if specified
+    if let Some(output_path) = &args.output {
+        println!(
+            "Writing {} call results to {}",
+            call_results.len(),
+            output_path.display()
+        );
+        let json = serde_json::to_string_pretty(&call_results)?;
+        std::fs::write(output_path, json)?;
+        println!("Successfully wrote results to {}", output_path.display());
+    }
 
     Ok(())
 }

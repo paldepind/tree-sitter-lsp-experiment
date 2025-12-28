@@ -160,7 +160,7 @@ fn process_files<L: Language>(
 
                 let request_start = std::time::Instant::now();
                 match lsp_server.request::<References>(reference_params.clone()) {
-                    Ok(Some(locations)) if locations.len() > 0 => {
+                    Ok(Some(locations)) if !locations.is_empty() => {
                         let request_time = request_start.elapsed();
                         tracing::info!(
                             "    Request took {:.2?}, found {} references on attempt {}",

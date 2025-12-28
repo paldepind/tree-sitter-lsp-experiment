@@ -24,6 +24,10 @@ pub struct Args {
     /// Glob patterns to exclude specific files (e.g., '**/*test*'). Can be specified multiple times.
     #[arg(long, value_name = "PATTERN")]
     pub exclude: Vec<String>,
+
+    /// Optional path to write JSON output to
+    #[arg(long, value_name = "PATH")]
+    pub output: Option<PathBuf>,
 }
 
 impl Args {
